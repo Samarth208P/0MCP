@@ -1,35 +1,405 @@
 /**
- * ENS identity layer — agent registration, brain discovery, rental access tokens.
- * register_agent + resolve_brain: real implementations on Sepolia.
- * issue_rental + verify_access: stubs (NameWrapper complexity, roadmap).
+ * ENS Identity Layer — registers agents and resolves Brain iNFTs via ENS.
+ *
+ * Real implementations on Sepolia:
+ *   registerAgent — creates/updates agent subnames under ENS_PARENT_NAME
+ *   resolveBrain  — reads 0MCP metadata and owner/address information
+ *   issueRental   — creates a renter subname with expiry/access records
+ *   verifyAccess  — verifies the resolver records + current wrapped/unwrapped owner
+ *
  * @module ens
  */
 
+import { ethers } from "ethers";
+import "./env.js";
 import type { BrainMetadata, AccessResult } from "./types.js";
 
-// STUB — implemented in Phase 5
+const SEPOLIA_RPC_URL = process.env.SEPOLIA_RPC_URL ?? "https://rpc.sepolia.org";
+const ENS_PRIVATE_KEY = process.env.ENS_PRIVATE_KEY ?? "";
+const ENS_PARENT_NAME = process.env.ENS_PARENT_NAME ?? "0mcp.eth";
+const ENS_REGISTRY_ADDRESS =
+  process.env.ENS_REGISTRY_ADDRESS ?? "0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e";
+const ENS_PUBLIC_RESOLVER_ADDRESS =
+  process.env.ENS_RESOLVER_ADDRESS ?? "0xE99638b40E4Fff0129D56f03b55b6bbC4BBE49b5";
+const ENS_NAME_WRAPPER_ADDRESS =
+  process.env.ENS_NAME_WRAPPER_ADDRESS ?? "0x0635513f179D50A207757E05759CbD106d7dFcE8";
+const ENS_REVERSE_REGISTRAR_ADDRESS =
+  process.env.ENS_REVERSE_REGISTRAR_ADDRESS ?? "0x4F382928805ba0e23B30cFB75fC9E848e82DFD47";
+const DEFAULT_RENTAL_DURATION_DAYS = Number(process.env.RENTAL_DURATION_DAYS ?? "30");
+
+const ENS_REGISTRY_ABI = [
+  "function owner(bytes32 node) external view returns (address)",
+  "function resolver(bytes32 node) external view returns (address)",
+  "function setOwner(bytes32 node, address owner) external",
+  "function setSubnodeRecord(bytes32 node, bytes32 label, address owner, address resolver, uint64 ttl) external",
+];
+
+const PUBLIC_RESOLVER_ABI = [
+  "function setText(bytes32 node, string calldata key, string calldata value) external",
+  "function text(bytes32 node, string calldata key) external view returns (string memory)",
+  "function addr(bytes32 node) external view returns (address)",
+  "function setAddr(bytes32 node, address addr) external",
+];
+
+const NAME_WRAPPER_ABI = [
+  "function ownerOf(uint256 tokenId) external view returns (address)",
+  "function setSubnodeRecord(bytes32 parentNode, string calldata label, address owner, address resolver, uint64 ttl, uint32 fuses, uint64 expiry) external returns (bytes32)",
+  "function safeTransferFrom(address from, address to, uint256 id, uint256 amount, bytes calldata data) external",
+];
+
+const REVERSE_REGISTRAR_ABI = [
+  "function setName(string memory name) external returns (bytes32)",
+];
+
+const TTL = 0;
+
+function nameHash(ens: string): string {
+  return ethers.namehash(ens);
+}
+
+function labelHash(label: string): string {
+  return ethers.keccak256(ethers.toUtf8Bytes(label));
+}
+
+function tokenIdForName(name: string): bigint {
+  return BigInt(nameHash(name));
+}
+
+function getProvider(): ethers.JsonRpcProvider {
+  return new ethers.JsonRpcProvider(SEPOLIA_RPC_URL);
+}
+
+function getSigner(): ethers.Wallet {
+  if (!ENS_PRIVATE_KEY) {
+    throw new Error("ENS_PRIVATE_KEY not set — required for ENS writes on Sepolia.");
+  }
+  return new ethers.Wallet(ENS_PRIVATE_KEY, getProvider());
+}
+
+function requireSubLabel(label: string): string {
+  if (!label || label.includes(".")) {
+    throw new Error(`Expected a single ENS label, got "${label}"`);
+  }
+  return label.trim().toLowerCase();
+}
+
+function buildChildName(label: string, parentName: string): string {
+  return `${label}.${parentName}`;
+}
+
+function nowMs(): number {
+  return Date.now();
+}
+
+function expiryMs(days: number): number {
+  return nowMs() + days * 24 * 60 * 60 * 1000;
+}
+
+function expirySecondsFromNow(days: number): bigint {
+  return BigInt(Math.floor(Date.now() / 1000 + days * 24 * 60 * 60));
+}
+
+async function getNameOwner(
+  provider: ethers.JsonRpcProvider,
+  ensName: string
+): Promise<{ registryOwner: string; effectiveOwner: string; wrapped: boolean }> {
+  const registry = new ethers.Contract(ENS_REGISTRY_ADDRESS, ENS_REGISTRY_ABI, provider);
+  const node = nameHash(ensName);
+  const registryOwner = String(await registry.owner(node));
+
+  if (registryOwner.toLowerCase() === ENS_NAME_WRAPPER_ADDRESS.toLowerCase()) {
+    const wrapper = new ethers.Contract(ENS_NAME_WRAPPER_ADDRESS, NAME_WRAPPER_ABI, provider);
+    const effectiveOwner = String(await wrapper.ownerOf(tokenIdForName(ensName)));
+    return { registryOwner, effectiveOwner, wrapped: true };
+  }
+
+  return { registryOwner, effectiveOwner: registryOwner, wrapped: false };
+}
+
+async function writeResolverRecords(
+  signer: ethers.Wallet,
+  ensName: string,
+  addressRecord: string | undefined,
+  textRecords: Array<[string, string]>
+): Promise<void> {
+  const node = nameHash(ensName);
+  const resolver = new ethers.Contract(ENS_PUBLIC_RESOLVER_ADDRESS, PUBLIC_RESOLVER_ABI, signer);
+
+  if (addressRecord) {
+    const tx = await (resolver.setAddr as (
+      node: string,
+      addr: string
+    ) => Promise<ethers.ContractTransactionResponse>)(node, addressRecord);
+    await tx.wait();
+    console.error(`[ens]   ✓ setAddr(${ensName}, ${addressRecord}) | TX: ${tx.hash}`);
+  }
+
+  for (const [key, value] of textRecords) {
+    const tx = await (resolver.setText as (
+      node: string,
+      key: string,
+      value: string
+    ) => Promise<ethers.ContractTransactionResponse>)(node, key, value);
+    await tx.wait();
+    console.error(`[ens]   ✓ setText(${ensName}, ${key}) | TX: ${tx.hash}`);
+  }
+}
+
+async function createOrUpdateSubname(
+  signer: ethers.Wallet,
+  parentName: string,
+  label: string,
+  finalOwner: string,
+  addressRecord: string | undefined,
+  textRecords: Array<[string, string]>,
+  durationDays: number
+): Promise<string> {
+  const normalizedLabel = requireSubLabel(label);
+  const childName = buildChildName(normalizedLabel, parentName);
+  const provider = signer.provider as ethers.JsonRpcProvider;
+  const registry = new ethers.Contract(ENS_REGISTRY_ADDRESS, ENS_REGISTRY_ABI, signer);
+  const wrapper = new ethers.Contract(ENS_NAME_WRAPPER_ADDRESS, NAME_WRAPPER_ABI, signer);
+
+  const parentState = await getNameOwner(provider, parentName);
+  const parentNode = nameHash(parentName);
+  const signerAddress = await signer.getAddress();
+
+  if (parentState.wrapped) {
+    if (parentState.effectiveOwner.toLowerCase() !== signerAddress.toLowerCase()) {
+      throw new Error(`Signer does not control wrapped parent ENS name ${parentName}.`);
+    }
+
+    const tx = await (wrapper.setSubnodeRecord as (
+      parentNode: string,
+      label: string,
+      owner: string,
+      resolver: string,
+      ttl: number,
+      fuses: number,
+      expiry: bigint
+    ) => Promise<ethers.ContractTransactionResponse>)(
+      parentNode,
+      normalizedLabel,
+      signerAddress,
+      ENS_PUBLIC_RESOLVER_ADDRESS,
+      TTL,
+      0,
+      expirySecondsFromNow(durationDays)
+    );
+    await tx.wait();
+    console.error(`[ens]   ✓ wrapped subname created: ${childName} | TX: ${tx.hash}`);
+
+    await writeResolverRecords(signer, childName, addressRecord, textRecords);
+
+    if (finalOwner.toLowerCase() !== signerAddress.toLowerCase()) {
+      const transferTx = await (wrapper.safeTransferFrom as (
+        from: string,
+        to: string,
+        id: bigint,
+        amount: bigint,
+        data: string
+      ) => Promise<ethers.ContractTransactionResponse>)(
+        signerAddress,
+        finalOwner,
+        tokenIdForName(childName),
+        1n,
+        "0x"
+      );
+      await transferTx.wait();
+      console.error(`[ens]   ✓ wrapped ownership transferred: ${childName} → ${finalOwner} | TX: ${transferTx.hash}`);
+    }
+
+    return childName;
+  }
+
+  if (parentState.effectiveOwner.toLowerCase() !== signerAddress.toLowerCase()) {
+    throw new Error(`Signer does not control parent ENS name ${parentName}.`);
+  }
+
+  const tx = await (registry.setSubnodeRecord as (
+    parentNode: string,
+    label: string,
+    owner: string,
+    resolver: string,
+    ttl: number
+  ) => Promise<ethers.ContractTransactionResponse>)(
+    parentNode,
+    labelHash(normalizedLabel),
+    signerAddress,
+    ENS_PUBLIC_RESOLVER_ADDRESS,
+    TTL
+  );
+  await tx.wait();
+  console.error(`[ens]   ✓ subname created: ${childName} | TX: ${tx.hash}`);
+
+  await writeResolverRecords(signer, childName, addressRecord, textRecords);
+
+  if (finalOwner.toLowerCase() !== signerAddress.toLowerCase()) {
+    const transferTx = await (registry.setOwner as (
+      node: string,
+      owner: string
+    ) => Promise<ethers.ContractTransactionResponse>)(nameHash(childName), finalOwner);
+    await transferTx.wait();
+    console.error(`[ens]   ✓ ownership transferred: ${childName} → ${finalOwner} | TX: ${transferTx.hash}`);
+  }
+
+  return childName;
+}
+
+async function setPrimaryName(signer: ethers.Wallet, ensName: string): Promise<void> {
+  const reverseRegistrar = new ethers.Contract(
+    ENS_REVERSE_REGISTRAR_ADDRESS,
+    REVERSE_REGISTRAR_ABI,
+    signer
+  );
+  const tx = await (reverseRegistrar.setName as (
+    name: string
+  ) => Promise<ethers.ContractTransactionResponse>)(ensName);
+  await tx.wait();
+  console.error(`[ens]   ✓ reverse name set: ${ensName} | TX: ${tx.hash}`);
+}
+
 export async function registerAgent(
-  _projectId: string,
-  _name: string,
-  _metadata: Partial<BrainMetadata>
+  project_id: string,
+  name: string,
+  metadata: Partial<BrainMetadata>
 ): Promise<string> {
-  throw new Error("ens: not implemented yet — Phase 5");
+  const signer = getSigner();
+  const signerAddress = await signer.getAddress();
+  const ensName = await createOrUpdateSubname(
+    signer,
+    ENS_PARENT_NAME,
+    name,
+    signerAddress,
+    signerAddress,
+    [
+      ["com.0mcp.agent", project_id],
+      ["com.0mcp.description", metadata.description ?? "0MCP Agent"],
+      ["com.0mcp.sessions", String(metadata.sessions ?? 0)],
+      ...(metadata.token_id ? [["com.0mcp.brain", String(metadata.token_id)] as [string, string]] : []),
+      ...(metadata.contract_address
+        ? [["com.0mcp.contract", metadata.contract_address] as [string, string]]
+        : []),
+      ...(process.env.INFT_CONTRACT_ADDRESS
+        ? [["com.0mcp.contract", process.env.INFT_CONTRACT_ADDRESS] as [string, string]]
+        : []),
+    ],
+    365
+  );
+
+  await setPrimaryName(signer, ensName);
+  console.error(`[ens] ✅ Agent registered: ${ensName}`);
+  return ensName;
 }
 
-export async function resolveBrain(_ensName: string): Promise<BrainMetadata> {
-  throw new Error("ens: not implemented yet — Phase 5");
+export async function resolveBrain(ensName: string): Promise<BrainMetadata> {
+  const provider = getProvider();
+  const resolver = await provider.getResolver(ensName);
+
+  if (!resolver) {
+    throw new Error(`ENS resolver not found for ${ensName}. Is the name registered on Sepolia?`);
+  }
+
+  const [agent, description, sessions, brain, contract, wallet] = await Promise.all([
+    resolver.getText("com.0mcp.agent"),
+    resolver.getText("com.0mcp.description"),
+    resolver.getText("com.0mcp.sessions"),
+    resolver.getText("com.0mcp.brain"),
+    resolver.getText("com.0mcp.contract"),
+    provider.resolveName(ensName),
+  ]);
+
+  if (!agent) {
+    throw new Error(
+      `No com.0mcp.agent text record on ${ensName}. ` +
+        `Run register_agent first or check the ENS name is correct.`
+    );
+  }
+
+  const owner = await getNameOwner(provider, ensName);
+  const metadata: BrainMetadata = {
+    name: ensName,
+    description: description ?? "",
+    project_id: agent,
+    sessions: sessions ? parseInt(sessions, 10) : 0,
+    ...(brain ? { token_id: parseInt(brain, 10) } : {}),
+    ...(contract ? { contract_address: contract } : {}),
+    wallet: wallet ?? owner.effectiveOwner,
+  };
+
+  console.error(`[ens] ✓ Resolved: ${ensName} → project="${agent}" owner="${metadata.wallet}"`);
+  return metadata;
 }
 
-// STUB (roadmap — NameWrapper required for subname issuance)
 export async function issueRental(
-  _brainEns: string,
-  _renterAddr: string
+  brain_ens: string,
+  renter_address: string
 ): Promise<string> {
-  // STUB: roadmap item — requires ENS NameWrapper contract
-  throw new Error("ens: not implemented yet — Phase 5");
+  const signer = getSigner();
+  const brainMeta = await resolveBrain(brain_ens);
+  const label = `renter-${renter_address.slice(2, 10).toLowerCase()}`;
+  const expiresAt = expiryMs(DEFAULT_RENTAL_DURATION_DAYS);
+
+  const subname = await createOrUpdateSubname(
+    signer,
+    brain_ens,
+    label,
+    renter_address,
+    renter_address,
+    [
+      ["com.0mcp.access.granted_by", brain_ens],
+      ["com.0mcp.access.renter", renter_address],
+      ["com.0mcp.access.expires", String(expiresAt)],
+      ["com.0mcp.access.brain", brainMeta.token_id ? String(brainMeta.token_id) : ""],
+      ...(brainMeta.contract_address
+        ? [["com.0mcp.access.contract", brainMeta.contract_address] as [string, string]]
+        : []),
+      ["com.0mcp.access.status", "active"],
+    ],
+    DEFAULT_RENTAL_DURATION_DAYS
+  );
+
+  console.error(`[ens] ✅ Rental issued: ${subname} → ${renter_address} until ${new Date(expiresAt).toISOString()}`);
+  return subname;
 }
 
-export async function verifyAccess(_subname: string): Promise<AccessResult> {
-  // STUB: roadmap item — requires ENS NameWrapper contract
-  throw new Error("ens: not implemented yet — Phase 5");
+export async function verifyAccess(subname: string): Promise<AccessResult> {
+  const provider = getProvider();
+  const resolver = await provider.getResolver(subname);
+  if (!resolver) {
+    return {
+      valid: false,
+      subname,
+      expiresAt: null,
+      grantedBy: "",
+      renter: "",
+      owner: "",
+    };
+  }
+
+  const [grantedBy, renter, expiresAtRaw, status, resolvedAddress] = await Promise.all([
+    resolver.getText("com.0mcp.access.granted_by"),
+    resolver.getText("com.0mcp.access.renter"),
+    resolver.getText("com.0mcp.access.expires"),
+    resolver.getText("com.0mcp.access.status"),
+    provider.resolveName(subname),
+  ]);
+
+  const owner = await getNameOwner(provider, subname);
+  const expiresAt = expiresAtRaw ? parseInt(expiresAtRaw, 10) : null;
+  const activeByTime = expiresAt !== null && expiresAt > nowMs();
+  const activeByStatus = !status || status === "active";
+  const activeByOwner =
+    !!renter &&
+    owner.effectiveOwner.toLowerCase() === renter.toLowerCase() &&
+    (!resolvedAddress || resolvedAddress.toLowerCase() === renter.toLowerCase());
+
+  return {
+    valid: Boolean(grantedBy && renter && activeByTime && activeByStatus && activeByOwner),
+    subname,
+    expiresAt,
+    grantedBy: grantedBy ?? "",
+    renter: renter ?? "",
+    owner: owner.effectiveOwner,
+  };
 }

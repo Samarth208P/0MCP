@@ -61,18 +61,33 @@ export interface MintResult {
 
 /** Resolved metadata for an ENS-registered Brain agent. */
 export interface BrainMetadata {
-  wallet: string;
-  tokenId: string;
+  /** The ENS name itself (e.g. solidity-auditor.0mcp.eth) */
   name: string;
+  /** Human-readable description. */
   description: string;
+  /** Internal project identifier (com.0mcp.agent text record). */
   project_id: string;
+  /** Number of memory sessions saved. */
   sessions: number;
+  /** Brain iNFT token ID (com.0mcp.brain text record). Optional until minted. */
+  token_id?: number;
+  /** SimpleINFT contract address (com.0mcp.contract text record). */
+  contract_address?: string;
+  /** Resolved owner wallet address. */
+  wallet?: string;
 }
 
 /** Result of ENS rental access verification. */
 export interface AccessResult {
   valid: boolean;
+  subname: string;
   expiresAt: number | null;
+  /** Parent brain ENS name that granted the rental. */
+  grantedBy: string;
+  /** Wallet the rental subname points to. */
+  renter: string;
+  /** Current effective ENS owner of the subname. */
+  owner: string;
 }
 
 // ── KeeperHub types ───────────────────────────────────────────────────────────

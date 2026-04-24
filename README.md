@@ -26,7 +26,7 @@ You manually re-paste context into every prompt. You hit token limits. You repea
 
 Every prompt you send is silently enriched with relevant project history pulled from **0G decentralized storage**. Every response is logged back. Over time, your agent gets smarter about *your specific project* — not just language in general.
 
-When that expertise has real value, you can **mint it as a Brain iNFT** — a portable, ownable intelligence asset. And when you want the world to find it, **ENS gives it a human-readable name**: `solidity-auditor.brains.0mcp.eth`.
+When that expertise has real value, you can **mint it as a Brain iNFT** — a portable, ownable intelligence asset. And when you want the world to find it, **ENS gives it a human-readable name**: `solidity-auditor.0mcp.eth`.
 
 No new IDE. No new AI model. No subscription. Just memory — with an identity layer and a market for it.
 
@@ -140,9 +140,9 @@ This is what makes Brain iNFTs findable, trustworthy, and composable.
 
 **With ENS, it becomes:**
 ```
-solidity-auditor.brains.0mcp.eth
-uniswap-v4-expert.brains.0mcp.eth
-samarth.brains.0mcp.eth
+solidity-auditor.0mcp.eth
+uniswap-v4-expert.0mcp.eth
+samarth.0mcp.eth
 ```
 
 **How ENS is used in 0MCP — two distinct mechanisms:**
@@ -159,14 +159,14 @@ com.0mcp.project →  project identifier
 com.0mcp.sessions →  total logged interactions
 ```
 
-When another developer wants to rent expertise, they resolve `solidity-auditor.brains.0mcp.eth` and get the Brain iNFT address, metadata, and the owner's wallet — directly from ENS. **No marketplace UI needed. ENS is the discovery layer.**
+When another developer wants to rent expertise, they resolve `solidity-auditor.0mcp.eth` and get the Brain iNFT address, metadata, and the owner's wallet — directly from ENS. **No marketplace UI needed. ENS is the discovery layer.**
 
 **B) Subnames as Rental Access Tokens**
 
 When someone rents a Brain iNFT, they are issued a subname:
 
 ```
-renter-alice.solidity-auditor.brains.0mcp.eth
+renter-alice.solidity-auditor.0mcp.eth
 ```
 
 Their 0MCP instance resolves that subname to verify active rental access. **The subname is the access token.** No separate access control contract. No centralized list. Just ENS resolution — which is exactly what ENS was built for.
@@ -236,7 +236,7 @@ Brain rental payments and gas handled via Uniswap API — auto-swap from any tok
 ## Real-World Use Cases
 
 **The Junior-to-Senior Bridge**
-A first-time hackathon dev resolves `solidity-auditor.brains.0mcp.eth` → rents the Brain → their Cursor agent instantly has the context to flag reentrancy risks they would never have caught.
+A first-time hackathon dev resolves `solidity-auditor.0mcp.eth` → rents the Brain → their Cursor agent instantly has the context to flag reentrancy risks they would never have caught.
 
 **Collaborative DAO Memory**
 A team mints a shared `common-memory.dao-name.0mcp.eth` Brain. Every time one dev's agent fixes a bug, it's logged. Every teammate's agent learns it on their next session.
@@ -258,7 +258,7 @@ Pause mid-feature on desktop. Open laptop on a train. One prompt. The agent alre
 | Immutable Archive | 0G Log |
 | AI Compute | 0G dAIOS — no external LLM API needed |
 | Brain iNFT | ERC-7857, deployed on 0G Chain |
-| Agent Identity | ENS — `*.brains.0mcp.eth` |
+| Agent Identity | ENS — `*.0mcp.eth` |
 | Rental Access Tokens | ENS Subnames |
 | On-chain Execution | KeeperHub |
 | Payments | Uniswap API |
@@ -281,7 +281,10 @@ Pause mid-feature on desktop. Open laptop on a train. One prompt. The agent alre
 > `npm run mint` → snapshot exported → minted on 0G testnet → TX hash printed → verifiable on explorer
 
 **Act 5 — ENS identity registered:**
-> `npm run register-agent` → `solidity-auditor.brains.0mcp.eth` resolves to the Brain iNFT → another dev loads it via `load_brain("solidity-auditor.brains.0mcp.eth")` → their agent has the expertise
+> `npm run register-agent` → `solidity-auditor.0mcp.eth` resolves to the Brain iNFT → another dev loads it via `load_brain("solidity-auditor.0mcp.eth")` → their agent has the expertise
+
+**Live 0G health check:**
+> `npm run health:0g` → probes the configured KV + indexer endpoints and fails fast with the exact upstream issue
 
 Retrieved context is visible in terminal at every step. No black box.
 
@@ -291,7 +294,7 @@ Retrieved context is visible in terminal at every step. No black box.
 
 **$0.** Every component runs on testnet:
 
-- 0G: Newton testnet, free faucet tokens
+- 0G: Galileo testnet, free faucet tokens
 - 0G dAIOS: on-chain inference, no external API key
 - KeeperHub: testnet RPC routing
 - Uniswap: Sepolia testnet
@@ -327,7 +330,7 @@ The core demo works if any single sponsor layer is removed.
 | Brain iNFT snapshot + mint (ERC-7857) | ✅ Shipping |
 | Load external Brain iNFT into context | ✅ Shipping |
 | ENS agent identity + text record metadata | ✅ Shipping |
-| ENS subname rental access tokens | ✅ Shipping |
+| ENS subname rental access tokens | 🗺️ Roadmap |
 | Brain discovery via ENS resolution | ✅ Shipping |
 | KeeperHub on-chain execution routing | ✅ Shipping |
 | Uniswap payment flow | ✅ Shipping |

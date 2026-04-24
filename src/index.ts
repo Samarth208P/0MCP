@@ -7,6 +7,7 @@
  * Use console.error for ALL debug/info output.
  */
 
+import "./env.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
@@ -15,7 +16,7 @@ import { saveMemory, loadAllEntries } from "./storage.js";
 import { buildContext } from "./context.js";
 import { exportSnapshot, mintSnapshot, loadBrain } from "./snapshot.js";
 import { registerAgent, resolveBrain, issueRental, verifyAccess } from "./ens.js";
-import { execOnchain } from "./keeper.js";
+import { execOnchain, swapForRentalPayment } from "./keeper.js";
 
 // ── Server init ───────────────────────────────────────────────────────────────
 
@@ -155,7 +156,7 @@ server.registerTool(
       return {
         content: [{
           type: "text" as const,
-          text: `🧠 Brain iNFT minted!\nToken ID: ${result.tokenId}\nTX: https://chainscan-newton.0g.ai/tx/${result.txHash}`,
+          text: `🧠 Brain iNFT minted!\nToken ID: ${result.tokenId}\nTX: https://chainscan-galileo.0g.ai/tx/${result.txHash}`,
         }],
       };
     } catch (err) {
@@ -175,10 +176,10 @@ server.registerTool(
   {
     description:
       "Load an external Brain iNFT into context using its ENS name. " +
-      "Example: load_brain('solidity-auditor.brains.0mcp.eth') " +
+      "Example: load_brain('solidity-auditor.0mcp.eth') " +
       "Fetches the snapshot from the minted token and returns it for context injection.",
     inputSchema: z.object({
-      ens_name: z.string().describe("ENS name of the Brain iNFT to load (e.g. solidity-auditor.brains.0mcp.eth)"),
+      ens_name: z.string().describe("ENS name of the Brain iNFT to load (e.g. solidity-auditor.0mcp.eth)"),
     }),
     annotations: { readOnlyHint: true },
   },
@@ -207,10 +208,10 @@ server.registerTool(
   {
     description:
       "Register an ENS name for this 0MCP agent instance on Sepolia testnet. " +
-      "Creates agentname.brains.0mcp.eth with metadata text records.",
+      "Creates agentname.0mcp.eth with metadata text records.",
     inputSchema: z.object({
       project_id: z.string().describe("Project identifier"),
-      name: z.string().describe("Agent name (e.g. 'solidity-auditor' → solidity-auditor.brains.0mcp.eth)"),
+      name: z.string().describe("Agent name (e.g. 'solidity-auditor' → solidity-auditor.0mcp.eth)"),
       description: z.string().optional().describe("Human-readable agent description"),
     }),
     annotations: { readOnlyHint: false },
@@ -243,7 +244,7 @@ server.registerTool(
   {
     description:
       "Resolve an ENS Brain name to its owner wallet, token ID, and metadata. " +
-      "Example: resolve_brain('solidity-auditor.brains.0mcp.eth')",
+      "Example: resolve_brain('solidity-auditor.0mcp.eth')",
     inputSchema: z.object({
       ens_name: z.string().describe("ENS name to resolve"),
     }),
@@ -271,9 +272,8 @@ server.registerTool(
   "issue_rental",
   {
     description:
-      "[STUB] Issue a rental subname access token for a Brain iNFT. " +
-      "e.g. renter-alice.solidity-auditor.brains.0mcp.eth " +
-      "Full implementation requires ENS NameWrapper — roadmap.",
+      "Issue a rental subname access token for a Brain iNFT. " +
+      "e.g. renter-alice.solidity-auditor.0mcp.eth",
     inputSchema: z.object({
       brain_ens: z.string().describe("ENS name of the Brain to rent"),
       renter_address: z.string().describe("Wallet address of the renter"),
@@ -302,10 +302,9 @@ server.registerTool(
   "verify_access",
   {
     description:
-      "[STUB] Verify rental access via an ENS subname. " +
-      "Full implementation requires ENS NameWrapper — roadmap.",
+      "Verify rental access via an ENS subname.",
     inputSchema: z.object({
-      subname: z.string().describe("ENS subname to verify (e.g. renter-alice.solidity-auditor.brains.0mcp.eth)"),
+      subname: z.string().describe("ENS subname to verify (e.g. renter-alice.solidity-auditor.0mcp.eth)"),
     }),
     annotations: { readOnlyHint: true },
   },
@@ -360,11 +359,45 @@ server.registerTool(
 
 // ── Start server ──────────────────────────────────────────────────────────────
 
+// ── TOOL 11: pay_brain_rental ─────────────────────────────────────────────────
+
+server.registerTool(
+  "pay_brain_rental",
+  {
+    description:
+      "Execute a Uniswap v4 auto-swap for an agent rental payment, and route it " +
+      "through KeeperHub for MEV protection. Use this to handle Brain rental payments.",
+    inputSchema: z.object({
+      token_in: z.string().describe("Address of the token to swap from"),
+      token_out: z.string().describe("Address of the token to swap to (recipient's preferred token)"),
+      amount_in: z.string().describe("Exact input amount in the token's smallest unit (e.g. wei/mwei)"),
+      recipient: z.string().describe("Wallet address that receives the output tokens"),
+    }),
+    annotations: { readOnlyHint: false },
+  },
+  async ({ token_in, token_out, amount_in, recipient }) => {
+    try {
+      const result = await swapForRentalPayment(token_in, token_out, amount_in, recipient);
+      return {
+        content: [{
+          type: "text" as const,
+          text: `✓ Rental payment swap complete\nTX: ${result.txHash}\nGas used: ${result.gasUsed}`,
+        }],
+      };
+    } catch (err) {
+      console.error(`[0MCP] pay_brain_rental error: ${err}`);
+      return {
+        content: [{ type: "text" as const, text: `Error executing rental payment swap: ${err}` }],
+      };
+    }
+  }
+);
+
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
   console.error("0MCP server running on stdio — ready for IDE connection");
-  console.error(`Tools registered: get_context, save_memory, export_snapshot, mint_brain, load_brain, register_agent, resolve_brain, issue_rental, verify_access, exec_onchain`);
+  console.error(`Tools registered: get_context, save_memory, export_snapshot, mint_brain, load_brain, register_agent, resolve_brain, issue_rental, verify_access, exec_onchain, pay_brain_rental`);
 }
 
 main().catch(console.error);

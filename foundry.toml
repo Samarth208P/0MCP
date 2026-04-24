@@ -1,0 +1,32 @@
+[profile.default]
+src = "contracts"
+out = "out"
+libs = ["lib"]
+solc_version = "0.8.28"
+optimizer = true
+optimizer_runs = 200
+
+# 0G Galileo testnet
+[rpc_endpoints]
+zg_testnet = "${ZG_RPC_URL}"
+
+# Deployment notes:
+#
+# 1. Install OpenZeppelin (run once):
+#    forge install OpenZeppelin/openzeppelin-contracts
+#
+# 2. Deploy contracts to 0G Galileo testnet (chain ID 16602):
+#    source .env && forge create contracts/SimpleINFT.sol:SimpleINFT \
+#      --rpc-url $ZG_RPC_URL \
+#      --private-key $ZG_PRIVATE_KEY \
+#      --broadcast
+#
+# 3. Deploy the root registry as well:
+#    source .env && forge create contracts/MemoryRegistry.sol:MemoryRegistry \
+#      --rpc-url $ZG_RPC_URL \
+#      --private-key $ZG_PRIVATE_KEY \
+#      --broadcast
+#
+# 4. Copy the deployed addresses into .env:
+#    INFT_CONTRACT_ADDRESS=0x...
+#    MEMORY_REGISTRY_ADDRESS=0x...
