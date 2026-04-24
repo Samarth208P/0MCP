@@ -1,0 +1,30 @@
+# Dependencies
+node_modules/
+
+# Build output
+build/
+dist/
+
+# Environment — NEVER commit this
+.env
+
+# TypeScript cache
+*.tsbuildinfo
+
+# Foundry build artifacts
+out/
+cache/
+.foundry/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+*.swp
+*.swo
+
+# Logs
+*.log
+npm-debug.log*

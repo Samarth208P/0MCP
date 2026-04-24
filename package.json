@@ -1,0 +1,31 @@
+{
+  "name": "0mcp",
+  "version": "1.0.0",
+  "description": "Persistent memory layer for AI coding agents — 0G + ENS + Brain iNFT",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "dev": "ts-node --esm src/index.ts",
+    "start": "node build/index.js",
+    "demo": "ts-node --esm scripts/demo.ts",
+    "demo:debug": "cross-env DEBUG_CONTEXT=true ts-node --esm scripts/demo.ts",
+    "mint": "ts-node --esm scripts/mint-demo.ts",
+    "lint": "eslint src --ext .ts",
+    "format": "prettier --write \"src/**/*.ts\" \"scripts/**/*.ts\""
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@0gfoundation/0g-ts-sdk": "^1.2.6",
+    "@uniswap/v3-sdk": "^3.30.0",
+    "@uniswap/sdk-core": "^7.13.0",
+    "ethers": "^6.13.4",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "cross-env": "^7.0.3",
+    "prettier": "^3.3.3",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.7.2"
+  }
+}
