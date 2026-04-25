@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="./0mcp.png" alt="0MCP Logo" width="200" />
+  <img src="https://raw.githubusercontent.com/Samarth208P/0MCP/main/0mcp.png" alt="0MCP Logo" width="200" />
   <h1>0MCP — Persistent Memory Layer for AI Coding Agents</h1>
   <p><em>An MCP server giving your AI agent secure, persistent memory on 0G — turning expertise into a tradeable asset, discoverable via ENS.</em></p>
   <p><strong>ETHGlobal Open Agents 2026</strong> · Solo Project · Samarth Patel, IIT Roorkee</p>
