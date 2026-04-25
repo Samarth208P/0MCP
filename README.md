@@ -6,6 +6,35 @@
 
 ---
 
+## ⚡ Quick Start (Setup in 2 Minutes)
+
+### 1. Install & Build
+```bash
+git clone https://github.com/Samarth208P/0MCP.git
+cd 0MCP
+npm install
+npm run build
+```
+
+### 2. Run Setup Wizard
+This will generate your **0G/ENS keypairs** and scaffold your `.env` file automatically:
+```bash
+npm run setup
+```
+
+### 3. Connect your IDE
+Add the 0MCP server to **Cursor**, **Windsurf**, or **VS Code** (MCP settings):
+- **Command:** `node <absolute-path-to-0MCP>/build/src/index.js`
+- **Transport:** `stdio`
+
+### 4. Verify & Demo
+Test your local setup with a 5-act interaction demo (default runs in mock mode):
+```bash
+npm run cli -- demo
+```
+
+---
+
 ## The Problem: Goldfish Memory
 
 Every AI coding session starts from zero. Your agent in Cursor, VS Code, or Windsurf has no memory of:

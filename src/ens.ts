@@ -13,6 +13,7 @@
 import { ethers } from "ethers";
 import "./env.js";
 import type { BrainMetadata, AccessResult } from "./types.js";
+import { shouldUsePaymaster, submitSponsoredENSTx } from "./paymaster.js";
 
 const SEPOLIA_RPC_URL = process.env.SEPOLIA_RPC_URL ?? "https://rpc.sepolia.org";
 const ENS_PRIVATE_KEY = process.env.ENS_PRIVATE_KEY ?? "";
@@ -69,11 +70,50 @@ function getProvider(): ethers.JsonRpcProvider {
   return new ethers.JsonRpcProvider(SEPOLIA_RPC_URL);
 }
 
+/**
+ * Returns an ethers Wallet for signing ENS transactions.
+ * Falls back to the same private key as ZG_PRIVATE_KEY if ENS_PRIVATE_KEY is
+ * not separately set — safe since ENS Sepolia and 0G Galileo are separate chains.
+ */
 function getSigner(): ethers.Wallet {
-  if (!ENS_PRIVATE_KEY) {
-    throw new Error("ENS_PRIVATE_KEY not set — required for ENS writes on Sepolia.");
+  const key = ENS_PRIVATE_KEY || process.env.ZG_PRIVATE_KEY || "";
+  if (!key) {
+    throw new Error("No signing key found — set ENS_PRIVATE_KEY or ZG_PRIVATE_KEY in .env");
   }
-  return new ethers.Wallet(ENS_PRIVATE_KEY, getProvider());
+  return new ethers.Wallet(key, getProvider());
+}
+
+/**
+ * Submits a write transaction to an ENS contract.
+ * Automatically uses the ZeroGPaymaster (ERC-4337) if:
+ *   1. PAYMASTER_ADDRESS is configured
+ *   2. The user has 0G balance but no Sepolia ETH
+ * Otherwise sends directly (normal flow).
+ *
+ * @param signer    The ethers Wallet to sign with
+ * @param contract  Target ENS contract instance  
+ * @param method    Contract method name (e.g. "setText")
+ * @param args      Method arguments array
+ */
+async function sponsoredWrite(
+  signer: ethers.Wallet,
+  contract: ethers.Contract,
+  method: string,
+  args: unknown[],
+): Promise<void> {
+  const address = signer.address;
+  const usePaymaster = await shouldUsePaymaster(address);
+
+  if (usePaymaster) {
+    // Encode the calldata and route via ERC-4337 paymaster
+    const calldata = contract.interface.encodeFunctionData(method, args);
+    await submitSponsoredENSTx(signer, await contract.getAddress(), calldata);
+  } else {
+    // Normal direct send (user has Sepolia ETH)
+    const fn = contract[method] as (...a: unknown[]) => Promise<ethers.ContractTransactionResponse>;
+    const tx = await fn(...args);
+    await tx.wait(1);
+  }
 }
 
 function requireSubLabel(label: string): string {

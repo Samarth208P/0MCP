@@ -146,17 +146,31 @@ server.registerTool(
     inputSchema: z.object({
       project_id: z.string().describe("Project ID to snapshot and mint"),
       wallet: z.string().describe("Recipient wallet address (0x-prefixed)"),
+      ens_name: z.string().optional().describe("Optional ENS label to register for this brain (e.g. 'solidity-auditor')"),
     }),
     annotations: { readOnlyHint: false },
   },
-  async ({ project_id, wallet }) => {
+  async ({ project_id, wallet, ens_name }) => {
     try {
       const snapshot = await exportSnapshot(project_id);
       const result = await mintSnapshot(snapshot, wallet);
+      
+      let ensMsg = "";
+      if (ens_name) {
+        await registerAgent(project_id, ens_name, {
+          name: ens_name,
+          description: "0MCP Brain iNFT",
+          project_id,
+          sessions: snapshot.entry_count,
+          token_id: parseInt(result.tokenId, 10),
+        });
+        ensMsg = `\nENS: ${ens_name}.0mcp.eth registered!`;
+      }
+
       return {
         content: [{
           type: "text" as const,
-          text: `🧠 Brain iNFT minted!\nToken ID: ${result.tokenId}\nTX: https://chainscan-galileo.0g.ai/tx/${result.txHash}`,
+          text: `🧠 Brain iNFT minted!${ensMsg}\nToken ID: ${result.tokenId}\nTX: https://chainscan-galileo.0g.ai/tx/${result.txHash}`,
         }],
       };
     } catch (err) {

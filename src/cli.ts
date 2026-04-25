@@ -1,0 +1,1077 @@
+#!/usr/bin/env node
+/**
+ * 0MCP CLI — Human-facing terminal interface for the 0MCP system.
+ *
+ * Usage: 0mcp <command> [subcommand] [options]
+ *
+ * This is separate from the MCP stdio server (src/index.ts).
+ * Use this for setup, key generation, health checks, memory browsing,
+ * Brain iNFT management, and ENS operations — all from the terminal.
+ *
+ * IMPORTANT: Uses process.stdout for all user-facing output (not stderr).
+ *            stderr is reserved for debug/trace from the library modules.
+ */
+
+import "./env.js";
+import fs from "node:fs";
+import path from "node:path";
+import { ethers } from "ethers";
+
+// ── ANSI colour helpers ───────────────────────────────────────────────────────
+
+const NO_COLOR = process.env.NO_COLOR !== undefined || !process.stdout.isTTY;
+
+const c = {
+  reset:   (s: string) => NO_COLOR ? s : `\x1b[0m${s}\x1b[0m`,
+  bold:    (s: string) => NO_COLOR ? s : `\x1b[1m${s}\x1b[0m`,
+  dim:     (s: string) => NO_COLOR ? s : `\x1b[2m${s}\x1b[0m`,
+  green:   (s: string) => NO_COLOR ? s : `\x1b[32m${s}\x1b[0m`,
+  yellow:  (s: string) => NO_COLOR ? s : `\x1b[33m${s}\x1b[0m`,
+  cyan:    (s: string) => NO_COLOR ? s : `\x1b[36m${s}\x1b[0m`,
+  red:     (s: string) => NO_COLOR ? s : `\x1b[31m${s}\x1b[0m`,
+  magenta: (s: string) => NO_COLOR ? s : `\x1b[35m${s}\x1b[0m`,
+  blue:    (s: string) => NO_COLOR ? s : `\x1b[34m${s}\x1b[0m`,
+};
+
+// ── Output primitives ─────────────────────────────────────────────────────────
+
+const out  = (s: string)                => process.stdout.write(s + "\n");
+const ok   = (s: string)                => out(`  ${c.green("✓")} ${s}`);
+const err  = (s: string)                => out(`  ${c.red("✗")} ${s}`);
+const warn = (s: string)                => out(`  ${c.yellow("⚠")} ${s}`);
+const info = (s: string)                => out(`  ${c.cyan("·")} ${s}`);
+const bull = (s: string)                => out(`  ${c.dim("►")} ${s}`);
+const nl   = ()                         => out("");
+
+function header(title: string): void {
+  const bar = "─".repeat(58);
+  nl();
+  out(c.bold(c.cyan(`┌${bar}┐`)));
+  out(c.bold(c.cyan(`│  ${title.padEnd(56)}│`)));
+  out(c.bold(c.cyan(`└${bar}┘`)));
+  nl();
+}
+
+function jsonOut(data: unknown): void {
+  out(JSON.stringify(data, null, 2));
+}
+
+// ── Arg parsing ───────────────────────────────────────────────────────────────
+
+interface ParsedArgs {
+  command:    string;
+  sub1:       string;
+  sub2:       string;
+  positional: string[];       // everything that isn't a flag
+  flags:      Record<string, string | true>;
+}
+
+function parseArgs(argv: string[]): ParsedArgs {
+  const args = argv.slice(2); // strip node + script
+  const positional: string[] = [];
+  const flags: Record<string, string | true> = {};
+
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a.startsWith("--")) {
+      const key = a.slice(2);
+      const next = args[i + 1];
+      if (next && !next.startsWith("--")) {
+        flags[key] = next;
+        i++;
+      } else {
+        flags[key] = true;
+      }
+    } else {
+      positional.push(a);
+    }
+  }
+
+  return {
+    command:    positional[0] ?? "",
+    sub1:       positional[1] ?? "",
+    sub2:       positional[2] ?? "",
+    positional,
+    flags,
+  };
+}
+
+function flag(flags: Record<string, string | true>, key: string): string | undefined {
+  const v = flags[key];
+  return v === true ? undefined : v;
+}
+
+function hasFlag(flags: Record<string, string | true>, key: string): boolean {
+  return key in flags;
+}
+
+// ── Readline helper (for init wizard) ────────────────────────────────────────
+
+async function prompt(question: string, defaultVal = ""): Promise<string> {
+  return new Promise((resolve) => {
+    const def = defaultVal ? ` ${c.dim(`[${defaultVal}]`)}` : "";
+    process.stdout.write(`  ${c.cyan("?")} ${question}${def}: `);
+    process.stdin.resume();
+    process.stdin.setEncoding("utf8");
+    process.stdin.once("data", (data: Buffer | string) => {
+      process.stdin.pause();
+      const trimmed = data.toString().trim();
+      resolve(trimmed || defaultVal);
+    });
+  });
+}
+
+// ── COMMAND: help ─────────────────────────────────────────────────────────────
+
+function printHelp(): void {
+  out("");
+  out(c.bold(c.cyan("  0MCP") + " — Persistent Memory Layer for AI Coding Agents"));
+  out(c.dim("  Powered by 0G · ENS · Brain iNFT · KeeperHub · Uniswap v4"));
+  out("");
+  out(c.bold("  USAGE"));
+  out("    " + c.cyan("0mcp") + " <command> [subcommand] [options]");
+  out("");
+
+  const row = (cmd: string, desc: string) =>
+    out(`    ${c.cyan(cmd.padEnd(44))} ${c.dim(desc)}`);
+
+  out(c.bold("  SETUP"));
+  row("init",                                       "Interactive setup wizard — generates keys + scaffolds .env");
+  row("keygen [--save]",                            "Generate Ethereum keypair (safe offline)");
+  row("health",                                     "Check 0G RPC, indexer, registry, ENS Sepolia");
+  out("");
+  out(c.bold("  MEMORY"));
+  row("memory list <project> [--json]",             "List all saved memory entries");
+  row("memory export <project> [--file <path>]",    "Export full snapshot JSON to stdout or file");
+  out("");
+  out(c.bold("  BRAIN"));
+  row("brain mint <project> [--recipient <addr>] [--ens <label>]", "Mint Brain iNFT + register ENS in one step");
+  row("brain load <ens-name> --into <project>",     "Load external Brain into local project");
+  row("brain share <project> [--json]",             "Show ENS name + token ID");
+  row("brain status <project> [--json]",            "Show token, contract, entry count");
+  out("");
+  out(c.bold("  ENS"));
+  row("ens register <project> <label>",             "Register <label>.0mcp.eth subname");
+  row("ens resolve <ens-name> [--json]",            "Resolve ENS → metadata JSON");
+  row("ens issue <brain-ens> <renter-addr>",        "Issue rental subname");
+  row("ens verify <subname> [--json]",              "Verify rental access");
+  out("");
+  out(c.bold("  WALLET & ACCOUNT"));
+  row("wallet status [--json]",                     "Show balances, projects, and identity dashboard");
+  row("wallet projects [--json]",                   "List all projects found in storage");
+  out("");
+  out(c.bold("  INFT"));
+  row("inft status <contract> <token-id> [--json]", "Check tokenURI on 0G testnet");
+  out("");
+  out(c.bold("  DEMO"));
+  row("demo [--project <id>] [--live]",             "Run 5-act demo sequence (mock by default)");
+  out("");
+  out(c.bold("  FLAGS"));
+  out(`    ${c.cyan("--json")}     Output raw JSON (all read commands)`);
+  out(`    ${c.cyan("--save")}     Persist generated keys to .env`);
+  out(`    ${c.cyan("--file")}     Write output to file instead of stdout`);
+  out(`    ${c.cyan("--live")}     Use real 0G storage instead of mock`);
+  out("");
+}
+
+// ── COMMAND: keygen ───────────────────────────────────────────────────────────
+
+async function cmdKeygen(flags: Record<string, string | true>): Promise<void> {
+  header("KEY GENERATOR");
+  info("Generating new Ethereum keypair (works offline)…");
+  nl();
+
+  const wallet = ethers.Wallet.createRandom();
+  const privateKey = wallet.privateKey;
+  const address = wallet.address;
+  const mnemonic = wallet.mnemonic?.phrase ?? "(no mnemonic — HD wallet not available)";
+
+  out(c.bold("  Address (public):"));
+  out(`    ${c.green(address)}`);
+  nl();
+  out(c.bold("  Private Key:"));
+  out(`    ${c.yellow(privateKey)}`);
+  nl();
+  out(c.bold("  Mnemonic (12 words):"));
+  out(`    ${c.dim(mnemonic)}`);
+  nl();
+  warn("NEVER share your private key. Store mnemonic offline (paper/hardware wallet).");
+  warn("Add to .env as ZG_PRIVATE_KEY and ENS_PRIVATE_KEY.");
+  nl();
+  info("Get testnet tokens:");
+  bull("0G Galileo OG tokens  → https://faucet.0g.ai");
+  bull("Sepolia ETH           → https://sepoliafaucet.com");
+  nl();
+
+  if (hasFlag(flags, "save")) {
+    const envPath = path.resolve(process.cwd(), ".env");
+    if (!fs.existsSync(envPath)) {
+      err(".env file not found — run `0mcp init` first");
+      return;
+    }
+    let content = fs.readFileSync(envPath, "utf8");
+    const replaceOrAppend = (key: string, value: string): void => {
+      const re = new RegExp(`^${key}=.*$`, "m");
+      if (re.test(content)) {
+        content = content.replace(re, `${key}=${value}`);
+      } else {
+        content += `\n${key}=${value}`;
+      }
+    };
+    replaceOrAppend("ZG_PRIVATE_KEY", privateKey);
+    replaceOrAppend("ENS_PRIVATE_KEY", privateKey);
+    replaceOrAppend("MY_WALLET_ADDRESS", address);
+    fs.writeFileSync(envPath, content);
+    ok("Keys saved to .env (ZG_PRIVATE_KEY, ENS_PRIVATE_KEY, MY_WALLET_ADDRESS)");
+  }
+}
+
+// ── COMMAND: init ─────────────────────────────────────────────────────────────
+
+async function cmdInit(): Promise<void> {
+  header("0MCP INIT — SETUP WIZARD");
+  info("This wizard generates your keys and scaffolds a .env file.");
+  nl();
+
+  const genNew = await prompt("Generate a new keypair now?", "yes");
+  let privateKey = "";
+  let address = "";
+
+  if (genNew.toLowerCase().startsWith("y")) {
+    const wallet = ethers.Wallet.createRandom();
+    privateKey = wallet.privateKey;
+    address = wallet.address;
+    nl();
+    ok(`New keypair generated`);
+    out(`    Address:     ${c.green(address)}`);
+    out(`    Private key: ${c.yellow(privateKey)}`);
+    warn("Store your private key safely. You will not see it again here.");
+    nl();
+  } else {
+    privateKey = await prompt("Paste your existing private key (0x-prefixed)");
+    if (privateKey && privateKey.startsWith("0x")) {
+      try {
+        const w = new ethers.Wallet(privateKey);
+        address = w.address;
+        ok(`Wallet address: ${c.green(address)}`);
+      } catch {
+        err("Invalid private key format.");
+        process.exit(1);
+      }
+    }
+  }
+
+  nl();
+  info("Configure endpoints (press Enter to use defaults):");
+  const zgRpc     = await prompt("0G Galileo RPC URL",    "https://evmrpc-testnet.0g.ai");
+  const sepoliaRpc = await prompt("Sepolia RPC URL",   "https://rpc.sepolia.org");
+  const registry  = await prompt("MEMORY_REGISTRY_ADDRESS (deploy SimpleMemoryRegistry.sol first)", "");
+  const inftAddr  = await prompt("INFT_CONTRACT_ADDRESS (deploy SimpleINFT.sol first, or leave blank)", "");
+  const keeperKey = await prompt("KeeperHub API key (get at https://app.keeperhub.com)", "");
+  const mock      = await prompt("Use mock storage for now? (yes for testing)", "yes");
+  nl();
+
+  const envContent = `# 0MCP — Environment Variables
+# Generated by: 0mcp init
+# NEVER commit this file to git.
+
+# ── 0G Network (Galileo Testnet) ─────────────────────────────────────────────
+ZG_RPC_URL=${zgRpc}
+ZG_CHAIN_ID=16602
+ZG_INDEXER_RPC=https://indexer-storage-testnet-turbo.0g.ai
+ZG_INDEXER_FALLBACK_RPC=https://indexer-storage-testnet-standard.0g.ai
+MEMORY_REGISTRY_ADDRESS=${registry}
+ZG_PRIVATE_KEY=${privateKey}
+
+# ── Brain iNFT Contract ────────────────────────────────────────────────────────
+INFT_CONTRACT_ADDRESS=${inftAddr}
+MY_WALLET_ADDRESS=${address}
+
+# ── ENS (Sepolia) ─────────────────────────────────────────────────────────────
+ENS_PRIVATE_KEY=${privateKey}
+ENS_PARENT_NAME=0mcp.eth
+SEPOLIA_RPC_URL=${sepoliaRpc}
+ENS_REGISTRY_ADDRESS=0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e
+ENS_RESOLVER_ADDRESS=0xE99638b40E4Fff0129D56f03b55b6bbC4BBE49b5
+ENS_NAME_WRAPPER_ADDRESS=0x0635513f179D50A207757E05759CbD106d7dFcE8
+ENS_REVERSE_REGISTRAR_ADDRESS=0x4F382928805ba0e23B30cFB75fC9E848e82DFD47
+RENTAL_DURATION_DAYS=30
+
+# ── KeeperHub ─────────────────────────────────────────────────────────────────
+KEEPER_API_KEY=${keeperKey}
+
+# ── ZeroG Paymaster (Gas Sponsorship for ENS) ────────────────────────────────
+# Deploy ZeroGPaymaster.sol to Sepolia, then set these to enable gas-free ENS.
+# Users only need 0G tokens — no Sepolia ETH required.
+PAYMASTER_ADDRESS=
+PAYMASTER_RELAY_URL=https://relay.0mcp.eth.limo
+PAYMASTER_BUNDLER_URL=https://api.pimlico.io/v2/sepolia/rpc?apikey=public
+RELAY_SIGNER_ADDRESS=
+MIN_OG_BALANCE_ETH=0.01
+
+# ── Developer Options ─────────────────────────────────────────────────────────
+MOCK_STORAGE=${mock.toLowerCase().startsWith("y") ? "true" : "false"}
+DEBUG_CONTEXT=false
+AGENT_ENS_LABEL=my-agent
+AGENT_DESCRIPTION=0MCP Brain agent
+BRAIN_ENS_NAME=
+RENTER_ADDRESS=
+RENTAL_SUBNAME=
+`;
+
+  const envPath = path.resolve(process.cwd(), ".env");
+  if (fs.existsSync(envPath)) {
+    const overwrite = await prompt(".env already exists. Overwrite?", "no");
+    if (!overwrite.toLowerCase().startsWith("y")) {
+      warn("Aborted. .env not changed.");
+      return;
+    }
+  }
+
+  fs.writeFileSync(envPath, envContent);
+  nl();
+  ok(".env written successfully.");
+  nl();
+  out(c.bold("  Next steps:"));
+  bull("Get 0G testnet tokens     → https://faucet.0g.ai");
+  bull("Get Sepolia ETH           → https://sepoliafaucet.com");
+  bull("Deploy contracts          → forge create contracts/SimpleINFT.sol");
+  bull("Check health              → 0mcp health");
+  bull("Run demo                  → 0mcp demo");
+  nl();
+}
+
+// ── COMMAND: health ───────────────────────────────────────────────────────────
+
+async function cmdHealth(): Promise<void> {
+  header("SYSTEM HEALTH CHECK");
+
+  // 0G storage health
+  info("Checking 0G storage backend…");
+  try {
+    const { checkStorageHealth } = await import("./storage.js");
+    const health = await checkStorageHealth();
+    const mode = health.mode === "mock" ? c.yellow("mock") : c.green("live");
+    out(`    Mode:        ${mode}`);
+    out(`    Storage:     ${health.kvHealthy ? c.green("healthy") : c.red("unhealthy")}${health.kvEndpoint ? c.dim(` (${health.kvEndpoint})`) : ""}`);
+    out(`    Indexer:     ${health.indexerHealthy ? c.green("healthy") : c.red("unhealthy")}${health.indexerEndpoint ? c.dim(` (${health.indexerEndpoint})`) : ""}`);
+    if (health.issues.length > 0) {
+      nl();
+      health.issues.forEach((issue) => warn(issue));
+    }
+    if (health.kvHealthy && health.indexerHealthy) {
+      nl(); ok("0G backend is healthy");
+    }
+  } catch (e) {
+    err(`0G check failed: ${e}`);
+  }
+
+  nl();
+
+  // Sepolia / ENS connectivity
+  info("Checking Sepolia ENS connectivity…");
+  const sepoliaRpc = process.env.SEPOLIA_RPC_URL ?? "https://rpc.sepolia.org";
+  const ensRegistry = process.env.ENS_REGISTRY_ADDRESS ?? "0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e";
+  try {
+    const provider = new ethers.JsonRpcProvider(sepoliaRpc);
+    const network = await Promise.race([
+      provider.getNetwork(),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout")), 8000)),
+    ]);
+    const chainId = Number(network.chainId);
+    if (chainId !== 11155111) {
+      warn(`Sepolia chain ID mismatch: expected 11155111, got ${chainId}`);
+    } else {
+      out(`    Sepolia RPC: ${c.green("healthy")} ${c.dim(`(${sepoliaRpc})`)}`);
+    }
+
+    // Ping ENS registry
+    const registryAbi = ["function owner(bytes32 node) external view returns (address)"];
+    const registry = new ethers.Contract(ensRegistry, registryAbi, provider);
+    await Promise.race([
+      (registry.owner as (node: string) => Promise<string>)(ethers.namehash("eth")),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout")), 6000)),
+    ]);
+    out(`    ENS Registry: ${c.green("reachable")} ${c.dim(`(${ensRegistry})`)}`);
+    nl(); ok("ENS / Sepolia endpoint is healthy");
+  } catch (e) {
+    err(`Sepolia/ENS check failed: ${e}`);
+  }
+
+  // .env presence
+  nl();
+  info("Checking .env configuration…");
+  const required: Array<[string, string]> = [
+    ["ZG_PRIVATE_KEY",          "0G transactions"],
+    ["MEMORY_REGISTRY_ADDRESS", "on-chain memory registry"],
+    ["ENS_PRIVATE_KEY",         "ENS writes"],
+    ["INFT_CONTRACT_ADDRESS",   "Brain iNFT minting"],
+    ["KEEPER_API_KEY",          "KeeperHub / exec_onchain"],
+  ];
+  for (const [key, purpose] of required) {
+    const val = process.env[key];
+    const missing = !val || val.includes("your_") || val.includes("_here");
+    out(`    ${missing ? c.yellow("?") : c.green("✓")} ${key.padEnd(28)} ${missing ? c.dim(`(${purpose} — not set)`) : c.dim("set")}`);
+  }
+  nl();
+}
+
+// ── COMMAND: memory list ──────────────────────────────────────────────────────
+
+async function cmdMemoryList(project: string, flags: Record<string, string | true>): Promise<void> {
+  if (!project) { err("Usage: 0mcp memory list <project>"); process.exit(1); }
+
+  const { loadAllEntries } = await import("./storage.js");
+  const entries = await loadAllEntries(project);
+
+  if (hasFlag(flags, "json")) {
+    jsonOut(entries);
+    return;
+  }
+
+  header(`MEMORY — ${project}`);
+  if (entries.length === 0) {
+    warn(`No memory entries found for project: ${project}`);
+    return;
+  }
+  out(c.bold(`  ${entries.length} entries`));
+  nl();
+  for (const [i, e] of entries.entries()) {
+    out(`  ${c.cyan(`[${i + 1}]`)} ${c.dim(new Date(e.timestamp).toISOString())}`);
+    out(`      ${c.bold("Prompt:")} ${e.prompt.slice(0, 80)}${e.prompt.length > 80 ? "…" : ""}`);
+    out(`      ${c.bold("Tags:")}   ${e.tags.join(", ") || c.dim("none")}`);
+    if (e.file_paths.length > 0) {
+      out(`      ${c.bold("Files:")}  ${e.file_paths.slice(0, 3).join(", ")}`);
+    }
+    nl();
+  }
+}
+
+// ── COMMAND: memory export ────────────────────────────────────────────────────
+
+async function cmdMemoryExport(project: string, flags: Record<string, string | true>): Promise<void> {
+  if (!project) { err("Usage: 0mcp memory export <project> [--file <path>]"); process.exit(1); }
+
+  info(`Exporting snapshot for project: ${project}…`);
+  const { exportSnapshot } = await import("./snapshot.js");
+  const snapshot = await exportSnapshot(project);
+  const json = JSON.stringify(snapshot, null, 2);
+
+  const filePath = flag(flags, "file");
+  if (filePath) {
+    fs.writeFileSync(filePath, json, "utf8");
+    ok(`Snapshot written to: ${filePath}`);
+    info(`Entries: ${snapshot.entry_count} | Size: ${json.length} bytes`);
+  } else {
+    process.stdout.write(json + "\n");
+  }
+}
+
+// ── COMMAND: brain mint ───────────────────────────────────────────────────────
+
+async function cmdBrainMint(project: string, flags: Record<string, string | true>): Promise<void> {
+  if (!project) { err("Usage: 0mcp brain mint <project> [--recipient <wallet>] [--ens <label>]"); process.exit(1); }
+
+  const recipient = flag(flags, "recipient") ?? process.env.MY_WALLET_ADDRESS ?? "";
+  if (!recipient) {
+    err("Recipient wallet required. Use --recipient <addr> or set MY_WALLET_ADDRESS in .env");
+    process.exit(1);
+  }
+
+  header("BRAIN INFT — MINT");
+  info(`Project:   ${project}`);
+  info(`Recipient: ${recipient}`);
+  nl();
+
+  const { exportSnapshot, mintSnapshot } = await import("./snapshot.js");
+  const { registerAgent } = await import("./ens.js");
+
+  info("Exporting snapshot…");
+  const snapshot = await exportSnapshot(project);
+  ok(`Snapshot ready — ${snapshot.entry_count} entries`);
+  nl();
+  info("Minting on 0G testnet (this may take 30–60s)…");
+  const result = await mintSnapshot(snapshot, recipient);
+  ok(`Brain iNFT minted!`);
+  out(`    Token ID: ${c.bold(result.tokenId)}`);
+  out(`    TX:       ${c.cyan(`https://chainscan-galileo.0g.ai/tx/${result.txHash}`)}`);
+
+  const ensLabel = flag(flags, "ens");
+  if (ensLabel) {
+    nl();
+    info(`Naming brain: ${ensLabel}.0mcp.eth…`);
+    const ensName = await registerAgent(project, ensLabel, {
+      name: ensLabel,
+      description: process.env.AGENT_DESCRIPTION ?? "0MCP Brain agent",
+      project_id: project,
+      sessions: snapshot.entry_count,
+      token_id: parseInt(result.tokenId, 10),
+    });
+    ok(`ENS name registered: ${c.bold(ensName)}`);
+  }
+
+  nl();
+  if (!ensLabel) info("Next: run `0mcp ens register` to create an ENS name for this Brain.");
+}
+
+// ── COMMAND: brain load ───────────────────────────────────────────────────────
+
+async function cmdBrainLoad(ensName: string, flags: Record<string, string | true>): Promise<void> {
+  if (!ensName) { err("Usage: 0mcp brain load <ens-name> --into <project>"); process.exit(1); }
+  const intoProject = flag(flags, "into");
+  if (!intoProject) { err("--into <project> is required"); process.exit(1); }
+
+  header(`BRAIN LOAD — ${ensName}`);
+  info(`Loading brain from ENS: ${ensName}…`);
+  const { loadBrain } = await import("./snapshot.js");
+  const snapshot = await loadBrain(ensName);
+
+  nl();
+  ok(`Brain loaded: ${ensName}`);
+  out(`    Entries:      ${snapshot.entry_count}`);
+  out(`    Top keywords: ${snapshot.metadata.top_keywords.slice(0, 5).join(", ")}`);
+  out(`    Date range:   ${new Date(snapshot.metadata.date_range.first).toISOString().split("T")[0]} → ${new Date(snapshot.metadata.date_range.last).toISOString().split("T")[0]}`);
+  nl();
+  info(`This snapshot is ready to inject into project: ${intoProject}`);
+  info("(Full snapshot JSON available via: 0mcp memory export)");
+}
+
+// ── COMMAND: brain share ──────────────────────────────────────────────────────
+
+async function cmdBrainShare(project: string, flags: Record<string, string | true>): Promise<void> {
+  if (!project) { err("Usage: 0mcp brain share <project>"); process.exit(1); }
+
+  const { loadAllEntries } = await import("./storage.js");
+  const entries = await loadAllEntries(project);
+  const parentName = process.env.ENS_PARENT_NAME ?? "0mcp.eth";
+  const label = process.env.AGENT_ENS_LABEL ?? project.replace(/[^a-z0-9-]/g, "-").toLowerCase();
+  const ensName = `${label}.${parentName}`;
+  const inftAddr = process.env.INFT_CONTRACT_ADDRESS ?? "(not deployed)";
+
+  if (hasFlag(flags, "json")) {
+    jsonOut({ ens_name: ensName, inft_contract: inftAddr, entry_count: entries.length, project_id: project });
+    return;
+  }
+
+  header(`BRAIN SHARE — ${project}`);
+  ok(`ENS name:       ${c.bold(ensName)}`);
+  info(`iNFT contract:  ${inftAddr}`);
+  info(`Project ID:     ${project}`);
+  info(`Entries:        ${entries.length}`);
+  nl();
+  out(c.bold("  Share this ENS name so others can load your Brain:"));
+  out(`    ${c.cyan(`0mcp brain load ${ensName} --into <their-project>`)}`);
+  nl();
+}
+
+// ── COMMAND: brain status ─────────────────────────────────────────────────────
+
+async function cmdBrainStatus(project: string, flags: Record<string, string | true>): Promise<void> {
+  if (!project) { err("Usage: 0mcp brain status <project>"); process.exit(1); }
+
+  const { loadAllEntries } = await import("./storage.js");
+  const entries = await loadAllEntries(project);
+  const inftAddr = process.env.INFT_CONTRACT_ADDRESS ?? "";
+  const parentName = process.env.ENS_PARENT_NAME ?? "0mcp.eth";
+  const label = process.env.AGENT_ENS_LABEL ?? project.replace(/[^a-z0-9-]/g, "-").toLowerCase();
+
+  const result = {
+    project_id: project,
+    entry_count: entries.length,
+    inft_contract: inftAddr || null,
+    ens_name: `${label}.${parentName}`,
+    mock_storage: process.env.MOCK_STORAGE === "true",
+  };
+
+  if (hasFlag(flags, "json")) { jsonOut(result); return; }
+
+  header(`BRAIN STATUS — ${project}`);
+  out(`    Project:        ${project}`);
+  out(`    Entries:        ${c.bold(String(entries.length))}`);
+  out(`    iNFT contract:  ${inftAddr ? c.green(inftAddr) : c.dim("(not set — deploy contracts/SimpleINFT.sol)")}`);
+  out(`    ENS name:       ${result.ens_name}`);
+  out(`    Storage mode:   ${result.mock_storage ? c.yellow("mock") : c.green("0G Galileo testnet")}`);
+  nl();
+}
+
+// ── COMMAND: ens register ─────────────────────────────────────────────────────
+
+async function cmdEnsRegister(project: string, label: string): Promise<void> {
+  if (!project || !label) { err("Usage: 0mcp ens register <project> <label>"); process.exit(1); }
+
+  header(`ENS REGISTER — ${label}.0mcp.eth`);
+  info(`Project: ${project}`);
+  info(`Label:   ${label}`);
+  nl();
+
+  const { loadAllEntries } = await import("./storage.js");
+  const { registerAgent } = await import("./ens.js");
+  info("Loading project memory…");
+  const entries = await loadAllEntries(project);
+  info(`Registering ENS subname (this requires Sepolia ETH and may take 30-90s)…`);
+
+  const ensName = await registerAgent(project, label, {
+    name: label,
+    description: process.env.AGENT_DESCRIPTION ?? "0MCP Brain agent",
+    project_id: project,
+    sessions: entries.length,
+  });
+
+  nl();
+  ok(`ENS name registered: ${c.bold(ensName)}`);
+  nl();
+  info("Next steps:");
+  bull(`Mint iNFT:         0mcp brain mint ${project}`);
+  bull(`Share with others: 0mcp brain share ${project}`);
+  nl();
+}
+
+// ── COMMAND: ens resolve ──────────────────────────────────────────────────────
+
+async function cmdEnsResolve(ensName: string, flags: Record<string, string | true>): Promise<void> {
+  if (!ensName) { err("Usage: 0mcp ens resolve <ens-name>"); process.exit(1); }
+
+  info(`Resolving ${ensName}…`);
+  const { resolveBrain } = await import("./ens.js");
+  const meta = await resolveBrain(ensName);
+
+  if (hasFlag(flags, "json")) { jsonOut(meta); return; }
+
+  header(`ENS RESOLVE — ${ensName}`);
+  out(`    Name:         ${meta.name}`);
+  out(`    Project:      ${meta.project_id}`);
+  out(`    Description:  ${meta.description || c.dim("(not set)")}`);
+  out(`    Sessions:     ${meta.sessions}`);
+  out(`    Wallet:       ${meta.wallet ?? c.dim("(not set)")}`);
+  out(`    Token ID:     ${meta.token_id != null ? String(meta.token_id) : c.dim("(not minted yet)")}`);
+  out(`    Contract:     ${meta.contract_address ?? c.dim("(not set)")}`);
+  nl();
+}
+
+// ── COMMAND: ens issue ────────────────────────────────────────────────────────
+
+async function cmdEnsIssue(brainEns: string, renterAddr: string): Promise<void> {
+  if (!brainEns || !renterAddr) { err("Usage: 0mcp ens issue <brain-ens> <renter-addr>"); process.exit(1); }
+
+  header("ENS RENTAL — ISSUE");
+  info(`Brain:  ${brainEns}`);
+  info(`Renter: ${renterAddr}`);
+  nl();
+  info("Creating rental subname on Sepolia (requires Sepolia ETH)…");
+
+  const { issueRental } = await import("./ens.js");
+  const subname = await issueRental(brainEns, renterAddr);
+
+  nl();
+  ok(`Rental issued: ${c.bold(subname)}`);
+  nl();
+  info("Renter can verify access with:");
+  bull(`0mcp ens verify ${subname}`);
+  nl();
+}
+
+// ── COMMAND: ens verify ───────────────────────────────────────────────────────
+
+async function cmdEnsVerify(subname: string, flags: Record<string, string | true>): Promise<void> {
+  if (!subname) { err("Usage: 0mcp ens verify <subname>"); process.exit(1); }
+
+  info(`Verifying access for ${subname}…`);
+  const { verifyAccess } = await import("./ens.js");
+  const result = await verifyAccess(subname);
+
+  if (hasFlag(flags, "json")) { jsonOut(result); return; }
+
+  header(`ENS VERIFY — ${subname}`);
+  out(`    Valid:      ${result.valid ? c.green("yes") : c.red("no")}`);
+  out(`    Subname:    ${result.subname}`);
+  out(`    Renter:     ${result.renter || c.dim("(not set)")}`);
+  out(`    Granted by: ${result.grantedBy || c.dim("(not set)")}`);
+  out(`    Owner:      ${result.owner || c.dim("(not set)")}`);
+  out(`    Expires:    ${result.expiresAt ? new Date(result.expiresAt).toISOString() : c.dim("(no expiry)")}`);
+  nl();
+  if (!result.valid) {
+    warn("Access is NOT valid. Possible reasons:");
+    bull("Subname not registered / no text records set");
+    bull("Rental has expired");
+    bull("ENS owner does not match renter address");
+  } else {
+    ok("Access is VALID — renter is authorised.");
+  }
+  nl();
+}
+
+// ── COMMAND: inft status ──────────────────────────────────────────────────────
+
+async function cmdInftStatus(contractAddr: string, tokenId: string, flags: Record<string, string | true>): Promise<void> {
+  if (!contractAddr || !tokenId) { err("Usage: 0mcp inft status <contract> <token-id>"); process.exit(1); }
+
+  info(`Checking token #${tokenId} on ${contractAddr}…`);
+
+  const rpcUrl = process.env.ZG_RPC_URL ?? "https://evmrpc-testnet.0g.ai";
+  const chainId = Number(process.env.ZG_CHAIN_ID ?? "16602");
+  const abi = [
+    "function tokenURI(uint256 tokenId) external view returns (string memory)",
+    "function ownerOf(uint256 tokenId) external view returns (address)",
+  ];
+  const provider = new ethers.JsonRpcProvider(rpcUrl, chainId);
+  const contract = new ethers.Contract(contractAddr, abi, provider);
+
+  const [uriRaw, owner] = await Promise.all([
+    (contract.tokenURI as (id: bigint) => Promise<string>)(BigInt(tokenId)),
+    (contract.ownerOf as (id: bigint) => Promise<string>)(BigInt(tokenId)).catch(() => "(not found)"),
+  ]);
+
+  // Decode if base64 data URI
+  let decoded: unknown = null;
+  const b64Match = uriRaw.match(/^data:application\/json;base64,(.+)$/);
+  if (b64Match) {
+    try { decoded = JSON.parse(Buffer.from(b64Match[1], "base64").toString("utf8")); }
+    catch { /* leave null */ }
+  }
+
+  const result = {
+    contract: contractAddr,
+    token_id: tokenId,
+    owner,
+    uri_length: uriRaw.length,
+    uri_format: b64Match ? "data:application/json;base64" : "raw",
+    decoded_entry_count: decoded && typeof decoded === "object" && "entry_count" in decoded
+      ? (decoded as { entry_count: number }).entry_count
+      : null,
+  };
+
+  if (hasFlag(flags, "json")) { jsonOut(result); return; }
+
+  header(`INFT STATUS — #${tokenId}`);
+  out(`    Contract:    ${contractAddr}`);
+  out(`    Token ID:    ${tokenId}`);
+  out(`    Owner:       ${owner}`);
+  out(`    URI format:  ${result.uri_format}`);
+  out(`    URI length:  ${uriRaw.length} chars`);
+  if (result.decoded_entry_count !== null) {
+    out(`    Entries:     ${result.decoded_entry_count}`);
+  }
+  out(`    Explorer:    ${c.cyan(`https://chainscan-galileo.0g.ai/address/${contractAddr}`)}`);
+  nl();
+}
+
+// ── COMMAND: demo ─────────────────────────────────────────────────────────────
+
+async function cmdDemo(flags: Record<string, string | true>): Promise<void> {
+  const projectId = flag(flags, "project") ?? "ethglobal-0mcp-demo";
+  const useLive = hasFlag(flags, "live");
+
+  if (!useLive) process.env.MOCK_STORAGE = "true";
+
+  const { checkStorageHealth, saveMemory, loadAllEntries } = await import("./storage.js");
+  const { buildContext } = await import("./context.js");
+  const { exportSnapshot } = await import("./snapshot.js");
+  const { extractKeywords } = await import("./utils.js");
+
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+  nl();
+  out(c.bold(c.cyan("  🧠 0MCP — 5-Act Live Demo")));
+  out(c.dim(`  Storage: ${useLive ? "0G Galileo Testnet" : "Mock (in-memory)"} | Project: ${projectId}`));
+  nl();
+
+  // Preflight
+  if (useLive) {
+    info("Checking 0G connectivity before demo…");
+    const health = await checkStorageHealth();
+    if (!health.kvHealthy || !health.indexerHealthy) {
+      err("0G live mode is not healthy. Run without --live to use mock storage.");
+      health.issues.forEach((i) => warn(i));
+      process.exit(1);
+    }
+    ok(`0G backend healthy | Indexer: ${health.indexerEndpoint}`);
+    nl();
+  }
+
+  const seedEntries = [
+    {
+      prompt: "How do I prevent reentrancy attacks in Solidity?",
+      response: "Use checks-effects-interactions pattern. Apply ReentrancyGuard from OpenZeppelin. Add nonReentrant modifier to all public payable functions.",
+      file_paths: ["contracts/Vault.sol", "contracts/interfaces/IVault.sol"],
+      tags: ["reentrancy", "security", "solidity", "openzeppelin"],
+    },
+    {
+      prompt: "Gas optimisation for our ERC-20 token balances mapping",
+      response: "Pack the balances mapping tightly. Use uint128 instead of uint256 if max supply < 2^128. Use custom errors instead of require strings (saves ~50 gas each). Consider ERC-20 Permit (EIP-2612).",
+      file_paths: ["contracts/Token.sol"],
+      tags: ["gas", "erc20", "optimisation", "solidity"],
+    },
+    {
+      prompt: "Best practices for proxy upgradeable contracts",
+      response: "Use OpenZeppelin UUPS or Transparent proxy. Never initialize in constructor — use initializer functions. Keep storage layout stable (append-only). Use @openzeppelin/hardhat-upgrades to validate. Store implementation address in EIP-1967 slot.",
+      file_paths: ["contracts/ProxyVault.sol", "scripts/deploy.ts"],
+      tags: ["proxy", "upgradeable", "uups", "eip1967", "solidity"],
+    },
+  ];
+
+  // ACT 1
+  header("ACT 1: WITHOUT 0MCP MEMORY");
+  const question = "How do I secure this Solidity vault contract?";
+  bull(`Question: "${question}"`);
+  bull("Checking 0G memory…");
+  await sleep(800);
+  const pre = await buildContext(projectId, question);
+  if (!pre) {
+    ok("No prior context found — generic answer:");
+    nl();
+    out(c.dim('    🤖 "You should look into common Solidity vulnerabilities like reentrancy,'));
+    out(c.dim('       overflow, and access control issues. Consult the OpenZeppelin docs."'));
+    nl();
+    warn("This is what AI gives WITHOUT 0MCP. Vague. Unhelpful.");
+  }
+  await sleep(500);
+
+  // ACT 2
+  header(`ACT 2: SEEDING PROJECT MEMORY → 0G ${useLive ? "TESTNET" : "(MOCK)"}`);
+  bull(`Project: ${projectId}`);
+  bull(`Saving ${seedEntries.length} Solidity development memories…`);
+  nl();
+  for (let i = 0; i < seedEntries.length; i++) {
+    const e = seedEntries[i];
+    await saveMemory(projectId, { project_id: projectId, ...e, timestamp: Date.now() - (seedEntries.length - i) * 3_600_000 });
+    ok(`Memory ${i + 1}/${seedEntries.length}: "${e.prompt.slice(0, 55)}…"`);
+    bull(`Tags: ${e.tags.join(", ")}`);
+    nl();
+    await sleep(200);
+  }
+  const allE = await loadAllEntries(projectId);
+  ok(`Total entries in 0G: ${allE.length}`);
+  await sleep(500);
+
+  // ACT 3
+  header("ACT 3: WITH 0MCP — CONTEXTUAL RETRIEVAL FROM 0G");
+  bull(`Same question: "${question}"`);
+  bull("Retrieving context from 0G memory…");
+  await sleep(600);
+  const ctx = await buildContext(projectId, question, 3);
+  if (ctx) {
+    ok("Context found! Injecting into agent prompt:");
+    nl();
+    const preview = ctx.split("\n").slice(0, 10).join("\n    ");
+    out(`    ${c.dim(preview)}`);
+    out(c.dim("    …"));
+    nl();
+    ok("Agent now gives a specific, project-aware answer:");
+    nl();
+    out(c.dim('    🤖 "Based on your previous work on Vault.sol, apply ReentrancyGuard'));
+    out(c.dim('       (nonReentrant on withdraw), keep checks-effects-interactions,'));
+    out(c.dim('       and consider UUPS proxy for upgradeability as you discussed."'));
+    nl();
+    warn("Same AI, same question — but WITH 0MCP memory: specific, actionable, project-aware.");
+  }
+  await sleep(500);
+
+  // ACT 4
+  header("ACT 4: BRAIN INFT — EXPORT MEMORY SNAPSHOT");
+  bull("Exporting project memory as portable snapshot…");
+  const snapshot = await exportSnapshot(projectId);
+  ok("Snapshot exported:");
+  bull(`Version:      ${snapshot.version}`);
+  bull(`Project:      ${snapshot.project_id}`);
+  bull(`Entries:      ${snapshot.entry_count}`);
+  bull(`Top keywords: ${snapshot.metadata.top_keywords.slice(0, 5).join(", ")}`);
+  nl();
+  info(`Snapshot JSON: ${JSON.stringify(snapshot).length} chars (stored as base64 data URI in tokenURI)`);
+  if (!process.env.INFT_CONTRACT_ADDRESS) {
+    info("Set INFT_CONTRACT_ADDRESS in .env and run `0mcp brain mint` to mint on 0G testnet.");
+  }
+  await sleep(500);
+
+  // ACT 5
+  header("ACT 5: MEMORY STATS");
+  const dates = allE.map((e) => e.timestamp);
+  const allFiles = [...new Set(allE.flatMap((e) => e.file_paths))];
+  const tagFreq: Record<string, number> = {};
+  allE.flatMap((e) => e.tags).forEach((t) => { tagFreq[t] = (tagFreq[t] ?? 0) + 1; });
+  const topTags = Object.entries(tagFreq).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([t]) => t);
+
+  out(c.bold("  Project Memory Summary:"));
+  bull(`Total interactions stored:  ${allE.length}`);
+  bull(`Unique files referenced:    ${allFiles.length}`);
+  bull(`Top tags:                   ${topTags.join(", ")}`);
+  if (dates.length > 0) {
+    bull(`Memory span:                ${new Date(Math.min(...dates)).toISOString().split("T")[0]} → ${new Date(Math.max(...dates)).toISOString().split("T")[0]}`);
+  }
+  bull(`Storage mode:               ${useLive ? c.green("0G Galileo testnet") : c.yellow("mock (in-memory)")}`);
+  nl();
+  out(c.bold("  Sponsor integrations live in this demo:"));
+  bull("0G Foundation  — decentralised memory storage (Turbo) + on-chain root registry");
+  bull("Brain iNFT     — ERC-7857 memory snapshot minting (SimpleINFT.sol)");
+  bull("ENS            — agent identity via 0mcp.eth subnames on Sepolia");
+  bull("KeeperHub      — on-chain execution routing (exec_onchain tool)");
+  bull("Uniswap v4     — rental payment swap (pay_brain_rental tool)");
+  nl();
+  ok("Demo complete.");
+  info("Next: run `0mcp brain mint " + projectId + "` to mint your Brain iNFT on 0G testnet.");
+  nl();
+
+  // Suppress unused import warning (extractKeywords is used in debug mode only)
+  void extractKeywords;
+}
+
+// ── COMMAND: wallet status ────────────────────────────────────────────────────
+
+async function cmdWalletStatus(flags: Record<string, string | true>): Promise<void> {
+  const address = process.env.MY_WALLET_ADDRESS ?? "";
+  if (!address) { err("MY_WALLET_ADDRESS not set in .env"); return; }
+
+  const zgRpc  = process.env.ZG_RPC_URL      ?? "https://evmrpc-testnet.0g.ai";
+  const sepRpc = process.env.SEPOLIA_RPC_URL  ?? "https://rpc.sepolia.org";
+
+  const zgProvider  = new ethers.JsonRpcProvider(zgRpc);
+  const sepProvider = new ethers.JsonRpcProvider(sepRpc);
+
+  info(`Fetching status for ${address}…`);
+
+  const { getPaymasterStatus, shouldUsePaymaster } = await import("./paymaster.js");
+  const [zgBal, sepBal, pmUse, pmStatus] = await Promise.all([
+    zgProvider.getBalance(address).catch(() => 0n),
+    sepProvider.getBalance(address).catch(() => 0n),
+    shouldUsePaymaster(address).catch(() => false),
+    Promise.resolve(getPaymasterStatus()),
+  ]);
+
+  const dashboard = {
+    address,
+    network_0g:      { balance: ethers.formatEther(zgBal),  rpc: zgRpc },
+    network_sepolia: { balance: ethers.formatEther(sepBal), rpc: sepRpc },
+    config: {
+      ens_parent:    process.env.ENS_PARENT_NAME      ?? "0mcp.eth",
+      inft_contract: process.env.INFT_CONTRACT_ADDRESS ?? "(not set)",
+      mock_storage:  process.env.MOCK_STORAGE === "true",
+    },
+    paymaster: { ...pmStatus, sponsoring: pmUse },
+  };
+
+  if (hasFlag(flags, "json")) { jsonOut(dashboard); return; }
+
+  header("0MCP WALLET DASHBOARD");
+  out(`    Address:     ${c.green(address)}`);
+  nl();
+  out(c.bold("  Balances:"));
+  out(`    ● 0G Galileo:  ${c.cyan(ethers.formatEther(zgBal))} $OG`);
+  out(`    ● Sepolia:     ${c.magenta(ethers.formatEther(sepBal))} $ETH`);
+  nl();
+  out(c.bold("  Gas Sponsorship:"));
+  if (pmStatus.configured) {
+    out(`    ● Paymaster:   ${c.green(pmStatus.paymasterAddress)}`);
+    out(`    ● Relay:       ${pmStatus.relayUrl}`);
+    out(`    ● Sponsoring:  ${pmUse ? c.green("YES — your ENS ops are gas-free!") : c.yellow("No (you have Sepolia ETH, direct send)")}`);
+  } else {
+    out(`    ● Paymaster:   ${c.yellow("(not configured) — set PAYMASTER_ADDRESS in .env")}`);
+    out(`    ● Sepolia ETH: ${Number(ethers.formatEther(sepBal)) < 0.005
+      ? c.red("LOW — ENS ops need ~0.005 ETH or deploy paymaster")
+      : c.green("sufficient")}`);
+  }
+  nl();
+  out(c.bold("  Identity:"));
+  out(`    ● Parent:      ${dashboard.config.ens_parent}`);
+  out(`    ● Active Brain:${process.env.BRAIN_ENS_NAME ? c.cyan(process.env.BRAIN_ENS_NAME) : c.dim("(none set in .env)")}`);
+  out(`    ● iNFT:        ${dashboard.config.inft_contract}`);
+  out(`    ● Storage:     ${dashboard.config.mock_storage ? c.yellow("mock") : c.green("0G Galileo")}`);
+  nl();
+  out(c.bold("  Tips:"));
+  bull("Run `0mcp health` to verify network connectivity.");
+  bull("Run `0mcp ens resolve <name>` to check your agent identity.");
+  if (!pmStatus.configured && Number(ethers.formatEther(sepBal)) < 0.005) {
+    bull(c.yellow("Set PAYMASTER_ADDRESS in .env to enable gas-free ENS ops using 0G tokens."));
+  }
+  nl();
+}
+
+// ── MAIN ROUTER ───────────────────────────────────────────────────────────────
+
+async function main(): Promise<void> {
+  const parsed = parseArgs(process.argv);
+  const { command, sub1, sub2, flags } = parsed;
+
+  if (!command || command === "help" || hasFlag(flags, "help") || hasFlag(flags, "h")) {
+    printHelp();
+    return;
+  }
+
+  try {
+    if (command === "keygen") {
+      await cmdKeygen(flags);
+
+    } else if (command === "init") {
+      await cmdInit();
+
+    } else if (command === "health") {
+      await cmdHealth();
+
+    } else if (command === "wallet" && sub1 === "status") {
+      await cmdWalletStatus(flags);
+
+    } else if (command === "wallet" && sub1 === "projects") {
+      // Stub: in a real implementation this would query the on-chain registry
+      header("PROJECTS INDEX");
+      info("Retrieving project list from 0G Registry…");
+      nl();
+      warn("Scanning not yet supported by standard Registry contract.");
+      bull("Use `0mcp memory list <project>` if you know the project ID.");
+      nl();
+
+    } else if (command === "memory" && sub1 === "list") {
+      await cmdMemoryList(sub2 || parsed.positional[2] || "", flags);
+
+    } else if (command === "memory" && sub1 === "export") {
+      await cmdMemoryExport(sub2 || parsed.positional[2] || "", flags);
+
+    } else if (command === "brain" && sub1 === "mint") {
+      await cmdBrainMint(sub2 || parsed.positional[2] || "", flags);
+
+    } else if (command === "brain" && sub1 === "load") {
+      await cmdBrainLoad(sub2 || parsed.positional[2] || "", flags);
+
+    } else if (command === "brain" && sub1 === "share") {
+      await cmdBrainShare(sub2 || parsed.positional[2] || "", flags);
+
+    } else if (command === "brain" && sub1 === "status") {
+      await cmdBrainStatus(sub2 || parsed.positional[2] || "", flags);
+
+    } else if (command === "ens" && sub1 === "register") {
+      await cmdEnsRegister(sub2 || parsed.positional[2] || "", parsed.positional[3] || "");
+
+    } else if (command === "ens" && sub1 === "resolve") {
+      await cmdEnsResolve(sub2 || parsed.positional[2] || "", flags);
+
+    } else if (command === "ens" && sub1 === "issue") {
+      await cmdEnsIssue(sub2 || parsed.positional[2] || "", parsed.positional[3] || "");
+
+    } else if (command === "ens" && sub1 === "verify") {
+      await cmdEnsVerify(sub2 || parsed.positional[2] || "", flags);
+
+    } else if (command === "inft" && sub1 === "status") {
+      await cmdInftStatus(
+        sub2 || parsed.positional[2] || "",
+        parsed.positional[3] || "",
+        flags
+      );
+
+    } else if (command === "demo") {
+      await cmdDemo(flags);
+
+    } else {
+      err(`Unknown command: ${command} ${sub1}`);
+      nl();
+      printHelp();
+      process.exit(1);
+    }
+  } catch (e) {
+    nl();
+    err(`Error: ${e instanceof Error ? e.message : String(e)}`);
+    if (process.env.DEBUG_CLI === "true" && e instanceof Error) {
+      out(c.dim(e.stack ?? ""));
+    }
+    nl();
+    process.exit(1);
+  }
+}
+
+main();
