@@ -13,6 +13,9 @@
 
 import "./env.js";
 import type { ExecResult } from "./types.js";
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
 
 // ── Environment ───────────────────────────────────────────────────────────────
 
@@ -119,10 +122,11 @@ export async function swapForRentalPayment(
   amountIn: string,
   recipientAddress: string
 ): Promise<ExecResult> {
-  // Dynamic import — Uniswap v4 SDK loads only when needed for tree-shaking
-  const { Token } = await import("@uniswap/sdk-core");
-  const { Pool, V4Planner, Actions } = await import("@uniswap/v4-sdk");
-
+  // Use require dynamically for CJS interop, or await import as fallback
+  /* eslint-disable @typescript-eslint/no-var-requires */
+  const { Token } = require("@uniswap/sdk-core");
+  const { Pool, V4Planner, Actions } = require("@uniswap/v4-sdk");
+  /* eslint-enable @typescript-eslint/no-var-requires */
   // Sepolia testnet chain ID = 11155111
   const SEPOLIA_CHAIN_ID = 11155111;
   const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
@@ -162,7 +166,7 @@ export async function swapForRentalPayment(
     },
   ]);
   // Settle: sweep output to recipient
-  planner.addAction(Actions.TAKE_ALL, [tokenOut, recipientAddress]);
+  planner.addAction(Actions.TAKE_ALL, [tokenOut.address, amountIn]);
 
   const calldata = planner.finalize();
 
