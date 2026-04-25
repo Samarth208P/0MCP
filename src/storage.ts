@@ -19,6 +19,7 @@ import { ethers } from "ethers";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import crypto from "node:crypto";
 import "./env.js";
 import type { MemoryEntry } from "./types.js";
 import { getStreamId, withRetry } from "./utils.js";
@@ -38,7 +39,35 @@ interface StoredProjectMemory {
   version: "1.0";
   project_id: string;
   updated_at: number;
-  entries: MemoryEntry[];
+  entries?: MemoryEntry[];
+  encrypted_data?: string;
+}
+
+function encryptMemory(data: string, privateKeyHex: string): string {
+  const key = crypto.createHash("sha256").update(privateKeyHex).digest();
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
+  
+  let ciphertext = cipher.update(data, "utf8", "hex");
+  ciphertext += cipher.final("hex");
+  const authTag = cipher.getAuthTag().toString("hex");
+  
+  return `${iv.toString("hex")}:${authTag}:${ciphertext}`;
+}
+
+function decryptMemory(encrypted: string, privateKeyHex: string): string {
+  const key = crypto.createHash("sha256").update(privateKeyHex).digest();
+  const parts = encrypted.split(":");
+  if (parts.length !== 3) throw new Error("Invalid encrypted data format");
+  
+  const [ivHex, authTagHex, ciphertextHex] = parts;
+  const decipher = crypto.createDecipheriv("aes-256-gcm", key, Buffer.from(ivHex, "hex"));
+  decipher.setAuthTag(Buffer.from(authTagHex, "hex"));
+  
+  let decrypted = decipher.update(ciphertextHex, "hex", "utf8");
+  decrypted += decipher.final("utf8");
+  
+  return decrypted;
 }
 
 export interface StorageHealthStatus {
@@ -172,11 +201,14 @@ async function uploadProjectBundle(
   const provider = getProvider();
   const signer = new ethers.Wallet(privateKey, provider);
 
+  const serializedEntries = JSON.stringify(entries);
+  const encrypted_data = encryptMemory(serializedEntries, privateKey);
+
   const payload: StoredProjectMemory = {
     version: "1.0",
     project_id,
     updated_at: Date.now(),
-    entries,
+    encrypted_data,
   };
 
   const data = new TextEncoder().encode(JSON.stringify(payload));
@@ -220,7 +252,22 @@ async function downloadProjectBundle(project_id: string): Promise<StoredProjectM
     }
 
     const raw = await fs.readFile(tempPath, "utf8");
-    return JSON.parse(raw) as StoredProjectMemory;
+    const parsed = JSON.parse(raw) as StoredProjectMemory;
+    
+    if (parsed.encrypted_data) {
+      try {
+        const privateKey = getPrivateKey();
+        const decryptedStr = decryptMemory(parsed.encrypted_data, privateKey);
+        parsed.entries = JSON.parse(decryptedStr);
+      } catch (err) {
+        console.error(`[storage] Failed to decrypt memory bundle (wrong private key?). err=${String(err)}`);
+        parsed.entries = [];
+      }
+    } else if (!parsed.entries) {
+      parsed.entries = [];
+    }
+    
+    return parsed;
   } finally {
     await fs.unlink(tempPath).catch(() => undefined);
   }

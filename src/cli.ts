@@ -152,6 +152,7 @@ function printHelp(): void {
   out("");
   out(c.bold("  ENS"));
   row("ens register <project> <label>",             "Register <label>.0mcp.eth subname");
+  row("ens rename <old-name> <new-label>",          "Rename an existing Brain ENS name");
   row("ens resolve <ens-name> [--json]",            "Resolve ENS → metadata JSON");
   row("ens issue <brain-ens> <renter-addr>",        "Issue rental subname");
   row("ens verify <subname> [--json]",              "Verify rental access");
@@ -626,6 +627,26 @@ async function cmdEnsRegister(project: string, label: string): Promise<void> {
   nl();
 }
 
+// ── COMMAND: ens rename ───────────────────────────────────────────────────────
+
+async function cmdEnsRename(oldName: string, newLabel: string): Promise<void> {
+  if (!oldName || !newLabel) { err("Usage: 0mcp ens rename <old-name> <new-label>"); process.exit(1); }
+
+  header(`ENS RENAME — ${oldName} → ${newLabel}.0mcp.eth`);
+  info(`Old Name:  ${oldName}`);
+  info(`New Label: ${newLabel}`);
+  nl();
+
+  const { renameAgent } = await import("./ens.js");
+  info(`Renaming ENS brain (this requires Sepolia ETH and may take 30-90s)…`);
+
+  const newEnsName = await renameAgent(oldName, newLabel);
+
+  nl();
+  ok(`ENS name successfully renamed to: ${c.bold(newEnsName)}`);
+  nl();
+}
+
 // ── COMMAND: ens resolve ──────────────────────────────────────────────────────
 
 async function cmdEnsResolve(ensName: string, flags: Record<string, string | true>): Promise<void> {
@@ -1037,6 +1058,9 @@ async function main(): Promise<void> {
 
     } else if (command === "ens" && sub1 === "register") {
       await cmdEnsRegister(sub2 || parsed.positional[2] || "", parsed.positional[3] || "");
+
+    } else if (command === "ens" && sub1 === "rename") {
+      await cmdEnsRename(sub2 || parsed.positional[2] || "", parsed.positional[3] || "");
 
     } else if (command === "ens" && sub1 === "resolve") {
       await cmdEnsResolve(sub2 || parsed.positional[2] || "", flags);

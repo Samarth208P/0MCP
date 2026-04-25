@@ -332,6 +332,40 @@ export async function registerAgent(
   return ensName;
 }
 
+export async function renameAgent(
+  oldName: string,
+  newLabel: string
+): Promise<string> {
+  const signer = getSigner();
+  const signerAddress = await signer.getAddress();
+  
+  const metadata = await resolveBrain(oldName);
+  
+  if (!metadata.wallet || metadata.wallet.toLowerCase() !== signerAddress.toLowerCase()) {
+    throw new Error(`You do not own the brain ${oldName}. Only the owner can rename it.`);
+  }
+
+  const newEnsName = await createOrUpdateSubname(
+    signer,
+    ENS_PARENT_NAME,
+    newLabel,
+    signerAddress,
+    signerAddress,
+    [
+      ["com.0mcp.agent", metadata.project_id],
+      ["com.0mcp.description", metadata.description ?? "0MCP Agent"],
+      ["com.0mcp.sessions", String(metadata.sessions ?? 0)],
+      ...(metadata.token_id != null ? [["com.0mcp.brain", String(metadata.token_id)] as [string, string]] : []),
+      ...(metadata.contract_address ? [["com.0mcp.contract", metadata.contract_address] as [string, string]] : [])
+    ],
+    365
+  );
+
+  await setPrimaryName(signer, newEnsName);
+  console.error(`[ens] ✅ Agent renamed from ${oldName} to ${newEnsName}`);
+  return newEnsName;
+}
+
 export async function resolveBrain(ensName: string): Promise<BrainMetadata> {
   const provider = getProvider();
   const resolver = await provider.getResolver(ensName);

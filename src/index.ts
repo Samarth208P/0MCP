@@ -15,7 +15,7 @@ import { z } from "zod";
 import { saveMemory, loadAllEntries } from "./storage.js";
 import { buildContext } from "./context.js";
 import { exportSnapshot, mintSnapshot, loadBrain } from "./snapshot.js";
-import { registerAgent, resolveBrain, issueRental, verifyAccess } from "./ens.js";
+import { registerAgent, resolveBrain, issueRental, verifyAccess, renameAgent } from "./ens.js";
 import { execOnchain, swapForRentalPayment } from "./keeper.js";
 
 // ── Server init ───────────────────────────────────────────────────────────────
@@ -246,6 +246,35 @@ server.registerTool(
       console.error(`[0MCP] register_agent error: ${err}`);
       return {
         content: [{ type: "text" as const, text: `Error registering agent: ${err}` }],
+      };
+    }
+  }
+);
+
+// ── TOOL 6.5: rename_agent ───────────────────────────────────────────────────
+
+server.registerTool(
+  "rename_agent",
+  {
+    description:
+      "Rename an existing Agent's ENS Brain label. Ensure the new name is unique. " +
+      "It transfers all existing metadata to the new ENS label.",
+    inputSchema: z.object({
+      old_name: z.string().describe("The existing ENS label (e.g. 'solidity-auditor.0mcp.eth')"),
+      new_label: z.string().describe("The new label you want (just the prefix, e.g. 'new-name' for new-name.0mcp.eth)"),
+    }),
+    annotations: { readOnlyHint: false },
+  },
+  async ({ old_name, new_label }) => {
+    try {
+      const ensName = await renameAgent(old_name, new_label);
+      return {
+        content: [{ type: "text" as const, text: `✓ Agent successfully renamed to: ${ensName}` }],
+      };
+    } catch (err) {
+      console.error(`[0MCP] rename_agent error: ${err}`);
+      return {
+        content: [{ type: "text" as const, text: `Error renaming agent: ${err}` }],
       };
     }
   }
