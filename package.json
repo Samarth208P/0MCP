@@ -1,13 +1,21 @@
 {
-  "name": "0mcp",
+  "name": "@samarth208p/0mcp",
   "version": "1.0.0",
   "description": "Persistent memory layer for AI coding agents — 0G + ENS + Brain iNFT",
   "type": "module",
+  "main": "./build/src/index.js",
   "bin": {
     "0mcp": "./build/src/cli.js"
   },
+  "files": [
+    "build",
+    "contracts",
+    "README.md",
+    "0mcp.png"
+  ],
   "scripts": {
     "build": "tsc",
+    "prepublishOnly": "npm run build",
     "setup": "node --loader ts-node/esm src/cli.ts init",
     "cli": "node --loader ts-node/esm src/cli.ts",
     "cli:debug": "cross-env DEBUG_CLI=true node --loader ts-node/esm src/cli.ts",

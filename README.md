@@ -9,22 +9,32 @@
 
 ## ⚡ Quick Start (Setup in 2 Minutes)
 
+### 1. Install via NPM
 ```bash
-# 1. Install & Build
+npm install -g @samarth208p/0mcp
+```
+
+### 2. Run Setup Wizard
+This will generate your **0G/ENS keypairs** and scaffold your `.env` file automatically:
+```bash
+0mcp init
+```
+
+### 3. Connect your IDE
+Add 0MCP to **Cursor**, **Windsurf**, or **VS Code** (MCP settings):
+- **Command:** `npx -y @samarth208p/0mcp start`
+- **Transport:** `stdio`
+
+---
+
+### Alternative: Install from Source
+If you prefer to build from source:
+```bash
 git clone https://github.com/Samarth208P/0MCP.git
 cd 0MCP
 npm install && npm run build
-
-# 2. Run Setup Wizard (Generates keypairs & scaffold .env)
-npm run setup
-
-# 3. Verify & Demo
-npm run cli -- demo
+npm run setup # or node build/src/cli.js init
 ```
-
-**Connect your IDE:** Add 0MCP to Cursor, Windsurf, or VS Code MCP settings:
-- **Command:** `node <absolute-path-to-0MCP>/build/src/index.js`
-- **Transport:** `stdio`
 
 ---
 

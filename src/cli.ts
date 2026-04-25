@@ -130,6 +130,7 @@ function printHelp(): void {
   out("");
   out(c.bold("  USAGE"));
   out("    " + c.cyan("0mcp") + " <command> [subcommand] [options]");
+  out("    " + c.cyan("0mcp start") + "                         " + c.dim("Launch the MCP server (for use in Cursor/VS Code)"));
   out("");
 
   const row = (cmd: string, desc: string) =>
@@ -1019,6 +1020,11 @@ async function main(): Promise<void> {
   try {
     if (command === "keygen") {
       await cmdKeygen(flags);
+
+    } else if (command === "start") {
+      // Launch the MCP server. We use dynamic import to avoid 
+      // starting the server logic during help/other commands.
+      await import("./index.js");
 
     } else if (command === "init") {
       await cmdInit();
