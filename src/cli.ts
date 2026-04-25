@@ -35,7 +35,9 @@ const c = {
 
 // ── Output primitives ─────────────────────────────────────────────────────────
 
-const out  = (s: string)                => process.stdout.write(s + "\n");
+// IMPORTANT: For MCP compatibility, we MUST use stderr for all human-facing logs.
+// The stdout channel is reserved strictly for JSON-RPC protocol messages.
+const out  = (s: string)                => process.stderr.write(s + "\n");
 const ok   = (s: string)                => out(`  ${c.green("✓")} ${s}`);
 const err  = (s: string)                => out(`  ${c.red("✗")} ${s}`);
 const warn = (s: string)                => out(`  ${c.yellow("⚠")} ${s}`);
@@ -138,8 +140,13 @@ function printHelp(): void {
 
   out(c.bold("  SETUP"));
   row("init",                                       "Interactive setup wizard — generates keys + scaffolds .env");
-  row("keygen [--save]",                            "Generate Ethereum keypair (safe offline)");
   row("health",                                     "Check 0G RPC, indexer, registry, ENS Sepolia");
+  out("");
+  out(c.bold("  WALLET & FUNDS"));
+  row("wallet status [--json]",                     "Show balances, brain identity, paymaster status");
+  row("wallet send <recipient> <amount>",           "Send 0G tokens to another address");
+  row("wallet projects [--json]",                   "List all known projects in storage");
+  row("keygen [--save]",                            "Generate Ethereum keypair (safe offline)");
   out("");
   out(c.bold("  MEMORY"));
   row("memory list <project> [--json]",             "List all saved memory entries");
@@ -155,24 +162,19 @@ function printHelp(): void {
   row("ens register <project> <label>",             "Register <label>.0mcp.eth subname");
   row("ens rename <old-name> <new-label>",          "Rename an existing Brain ENS name");
   row("ens resolve <ens-name> [--json]",            "Resolve ENS → metadata JSON");
-  row("ens issue <brain-ens> <renter-addr>",        "Issue rental subname");
+  row("ens issue <brain-ens> <renter-addr>",        "Issue a rental subname");
   row("ens verify <subname> [--json]",              "Verify rental access");
-  out("");
-  out(c.bold("  WALLET & ACCOUNT"));
-  row("wallet status [--json]",                     "Show balances, projects, and identity dashboard");
-  row("wallet projects [--json]",                   "List all projects found in storage");
   out("");
   out(c.bold("  INFT"));
   row("inft status <contract> <token-id> [--json]", "Check tokenURI on 0G testnet");
   out("");
   out(c.bold("  DEMO"));
-  row("demo [--project <id>] [--live]",             "Run 5-act demo sequence (mock by default)");
+  row("demo [--project <id>]",                      "Run 5-act demo (seeds real 0G memory)");
   out("");
   out(c.bold("  FLAGS"));
   out(`    ${c.cyan("--json")}     Output raw JSON (all read commands)`);
   out(`    ${c.cyan("--save")}     Persist generated keys to .env`);
   out(`    ${c.cyan("--file")}     Write output to file instead of stdout`);
-  out(`    ${c.cyan("--live")}     Use real 0G storage instead of mock`);
   out("");
 }
 
@@ -264,13 +266,24 @@ async function cmdInit(): Promise<void> {
   }
 
   nl();
-  info("Configure endpoints (press Enter to use defaults):");
-  const zgRpc     = await prompt("0G Galileo RPC URL",    "https://evmrpc-testnet.0g.ai");
-  const sepoliaRpc = await prompt("Sepolia RPC URL",   "https://rpc.sepolia.org");
-  const registry  = await prompt("MEMORY_REGISTRY_ADDRESS (deploy SimpleMemoryRegistry.sol first)", "");
-  const inftAddr  = await prompt("INFT_CONTRACT_ADDRESS (deploy SimpleINFT.sol first, or leave blank)", "");
-  const keeperKey = await prompt("KeeperHub API key (get at https://app.keeperhub.com)", "");
-  const mock      = await prompt("Use mock storage for now? (yes for testing)", "yes");
+  info("Configuring 0MCP environment…");
+  
+  // Hardcoded defaults for 0G Galileo and Sepolia
+  const zgRpc      = "https://evmrpc-testnet.0g.ai";
+  const sepoliaRpc = "https://ethereum-sepolia-rpc.publicnode.com";
+  const registry   = "0x1aa3A642Ee0fE818471B0B3e75157cbbaA8C75CD";
+  const inftAddr   = "0xd07059e54017BbF424223cb089ffBC5e2558cF56";
+  const paymaster  = "0xb1Ab695dbcbA334A60712234d46264A617AD6d7f";
+
+  const keeperKey = await prompt("KeeperHub API key (optional — get at https://app.keeperhub.com)", "");
+  const brainName = await prompt("Your Brain name (e.g. 'sampy' — will become sampy.0mcp.eth, or leave blank)", "");
+
+  // Normalise: strip parent suffix if the user typed the full ENS name
+  const brainLabelRaw = brainName.trim().toLowerCase();
+  const brainLabel = brainLabelRaw.endsWith(".0mcp.eth")
+    ? brainLabelRaw.slice(0, -".0mcp.eth".length)
+    : brainLabelRaw;
+  const fullBrainName = brainLabel ? `${brainLabel}.0mcp.eth` : "";
   nl();
 
   const envContent = `# 0MCP — Environment Variables
@@ -303,22 +316,26 @@ RENTAL_DURATION_DAYS=30
 KEEPER_API_KEY=${keeperKey}
 
 # ── ZeroG Paymaster (Gas Sponsorship for ENS) ────────────────────────────────
-# Deploy ZeroGPaymaster.sol to Sepolia, then set these to enable gas-free ENS.
-# Users only need 0G tokens — no Sepolia ETH required.
-PAYMASTER_ADDRESS=
+PAYMASTER_ADDRESS=${paymaster}
 PAYMASTER_RELAY_URL=https://relay.0mcp.eth.limo
 PAYMASTER_BUNDLER_URL=https://api.pimlico.io/v2/sepolia/rpc?apikey=public
-RELAY_SIGNER_ADDRESS=
+RELAY_SIGNER_ADDRESS=${address}
 MIN_OG_BALANCE_ETH=0.01
 
-# ── Developer Options ─────────────────────────────────────────────────────────
-MOCK_STORAGE=${mock.toLowerCase().startsWith("y") ? "true" : "false"}
+# ── Developer Options ─────────────────────────────────────────────────────
 DEBUG_CONTEXT=false
-AGENT_ENS_LABEL=my-agent
 AGENT_DESCRIPTION=0MCP Brain agent
-BRAIN_ENS_NAME=
+# Your brain's ENS identity — set by 0mcp init
+# BRAIN_ENS_LABEL is the bare label (e.g. sampy); BRAIN_ENS_NAME is the full subname.
+# The 0MCP server registers this automatically on first start if not yet done.
+BRAIN_ENS_LABEL=${brainLabel}
+BRAIN_ENS_NAME=${fullBrainName}
+# Flipped to "true" automatically after the first successful ENS resolution.
+BRAIN_ENS_REGISTERED=
+# "own" = your brain (you registered it)  "loaded" = imported from another wallet
+BRAIN_ENS_MODE=
 RENTER_ADDRESS=
-RENTAL_SUBNAME=
+RENTER_SUBNAME=
 `;
 
   const envPath = path.resolve(process.cwd(), ".env");
@@ -331,15 +348,22 @@ RENTAL_SUBNAME=
   }
 
   fs.writeFileSync(envPath, envContent);
-  nl();
-  ok(".env written successfully.");
+  ok(".env written successfully (0MCP is ready).");
+
+  if (brainLabel) {
+    nl();
+    ok(`Brain name reserved: ${c.bold(`${brainLabel}.0mcp.eth`)}`);
+    info(`0MCP will automatically register ${c.cyan(`${brainLabel}.0mcp.eth`)} to your wallet`);
+    info(`the first time you start the MCP server (${c.cyan("0mcp start")}).`);
+    info(`Make sure your wallet has Sepolia ETH, or the paymaster`);
+    info(`at ${c.cyan(paymaster)} will sponsor the gas for you.`);
+  }
+
   nl();
   out(c.bold("  Next steps:"));
   bull("Get 0G testnet tokens     → https://faucet.0g.ai");
-  bull("Get Sepolia ETH           → https://sepoliafaucet.com");
-  bull("Deploy contracts          → forge create contracts/SimpleINFT.sol");
   bull("Check health              → 0mcp health");
-  bull("Run demo                  → 0mcp demo");
+  bull("Connect IDE MCP           → Check INSTALLATION.md for your IDE");
   nl();
 }
 
@@ -353,8 +377,6 @@ async function cmdHealth(): Promise<void> {
   try {
     const { checkStorageHealth } = await import("./storage.js");
     const health = await checkStorageHealth();
-    const mode = health.mode === "mock" ? c.yellow("mock") : c.green("live");
-    out(`    Mode:        ${mode}`);
     out(`    Storage:     ${health.kvHealthy ? c.green("healthy") : c.red("unhealthy")}${health.kvEndpoint ? c.dim(` (${health.kvEndpoint})`) : ""}`);
     out(`    Indexer:     ${health.indexerHealthy ? c.green("healthy") : c.red("unhealthy")}${health.indexerEndpoint ? c.dim(` (${health.indexerEndpoint})`) : ""}`);
     if (health.issues.length > 0) {
@@ -378,7 +400,7 @@ async function cmdHealth(): Promise<void> {
     const provider = new ethers.JsonRpcProvider(sepoliaRpc);
     const network = await Promise.race([
       provider.getNetwork(),
-      new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout")), 8000)),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout")), 15000)),
     ]);
     const chainId = Number(network.chainId);
     if (chainId !== 11155111) {
@@ -392,7 +414,7 @@ async function cmdHealth(): Promise<void> {
     const registry = new ethers.Contract(ensRegistry, registryAbi, provider);
     await Promise.race([
       (registry.owner as (node: string) => Promise<string>)(ethers.namehash("eth")),
-      new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout")), 6000)),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout")), 12000)),
     ]);
     out(`    ENS Registry: ${c.green("reachable")} ${c.dim(`(${ensRegistry})`)}`);
     nl(); ok("ENS / Sepolia endpoint is healthy");
@@ -546,8 +568,9 @@ async function cmdBrainShare(project: string, flags: Record<string, string | tru
   const { loadAllEntries } = await import("./storage.js");
   const entries = await loadAllEntries(project);
   const parentName = process.env.ENS_PARENT_NAME ?? "0mcp.eth";
-  const label = process.env.AGENT_ENS_LABEL ?? project.replace(/[^a-z0-9-]/g, "-").toLowerCase();
-  const ensName = `${label}.${parentName}`;
+  // Prefer the registered brain name, fall back to slugified project id
+  const ensName = process.env.BRAIN_ENS_NAME ||
+    `${(process.env.BRAIN_ENS_LABEL || project).replace(/[^a-z0-9-]/g, "-").toLowerCase()}.${parentName}`;
   const inftAddr = process.env.INFT_CONTRACT_ADDRESS ?? "(not deployed)";
 
   if (hasFlag(flags, "json")) {
@@ -574,15 +597,18 @@ async function cmdBrainStatus(project: string, flags: Record<string, string | tr
   const { loadAllEntries } = await import("./storage.js");
   const entries = await loadAllEntries(project);
   const inftAddr = process.env.INFT_CONTRACT_ADDRESS ?? "";
+  // Use BRAIN_ENS_NAME if set (registered), otherwise derive from project id
   const parentName = process.env.ENS_PARENT_NAME ?? "0mcp.eth";
-  const label = process.env.AGENT_ENS_LABEL ?? project.replace(/[^a-z0-9-]/g, "-").toLowerCase();
+  const ensName = process.env.BRAIN_ENS_NAME ||
+    `${(process.env.BRAIN_ENS_LABEL || project).replace(/[^a-z0-9-]/g, "-").toLowerCase()}.${parentName}`;
+  const brainMode = process.env.BRAIN_ENS_MODE ?? "";
 
   const result = {
     project_id: project,
     entry_count: entries.length,
     inft_contract: inftAddr || null,
-    ens_name: `${label}.${parentName}`,
-    mock_storage: process.env.MOCK_STORAGE === "true",
+    ens_name: ensName,
+    ens_mode: brainMode || null,
   };
 
   if (hasFlag(flags, "json")) { jsonOut(result); return; }
@@ -591,8 +617,10 @@ async function cmdBrainStatus(project: string, flags: Record<string, string | tr
   out(`    Project:        ${project}`);
   out(`    Entries:        ${c.bold(String(entries.length))}`);
   out(`    iNFT contract:  ${inftAddr ? c.green(inftAddr) : c.dim("(not set — deploy contracts/SimpleINFT.sol)")}`);
-  out(`    ENS name:       ${result.ens_name}`);
-  out(`    Storage mode:   ${result.mock_storage ? c.yellow("mock") : c.green("0G Galileo testnet")}`);
+  out(`    ENS name:       ${ensName}${
+    brainMode === "own"    ? c.dim(" (yours)") :
+    brainMode === "loaded" ? c.dim(" (imported)") : ""}`);
+  out(`    Storage:        ${c.green("0G Galileo testnet")}`);
   nl();
 }
 
@@ -781,9 +809,6 @@ async function cmdInftStatus(contractAddr: string, tokenId: string, flags: Recor
 
 async function cmdDemo(flags: Record<string, string | true>): Promise<void> {
   const projectId = flag(flags, "project") ?? "ethglobal-0mcp-demo";
-  const useLive = hasFlag(flags, "live");
-
-  if (!useLive) process.env.MOCK_STORAGE = "true";
 
   const { checkStorageHealth, saveMemory, loadAllEntries } = await import("./storage.js");
   const { buildContext } = await import("./context.js");
@@ -794,21 +819,19 @@ async function cmdDemo(flags: Record<string, string | true>): Promise<void> {
 
   nl();
   out(c.bold(c.cyan("  🧠 0MCP — 5-Act Live Demo")));
-  out(c.dim(`  Storage: ${useLive ? "0G Galileo Testnet" : "Mock (in-memory)"} | Project: ${projectId}`));
+  out(c.dim(`  Storage: 0G Galileo Testnet | Project: ${projectId}`));
   nl();
 
   // Preflight
-  if (useLive) {
-    info("Checking 0G connectivity before demo…");
-    const health = await checkStorageHealth();
-    if (!health.kvHealthy || !health.indexerHealthy) {
-      err("0G live mode is not healthy. Run without --live to use mock storage.");
-      health.issues.forEach((i) => warn(i));
-      process.exit(1);
-    }
-    ok(`0G backend healthy | Indexer: ${health.indexerEndpoint}`);
-    nl();
+  info("Checking 0G connectivity before demo…");
+  const health = await checkStorageHealth();
+  if (!health.kvHealthy || !health.indexerHealthy) {
+    err("0G backend is not healthy. Run `0mcp health` to diagnose.");
+    health.issues.forEach((i) => warn(i));
+    process.exit(1);
   }
+  ok(`0G backend healthy | Indexer: ${health.indexerEndpoint}`);
+  nl();
 
   const seedEntries = [
     {
@@ -849,7 +872,7 @@ async function cmdDemo(flags: Record<string, string | true>): Promise<void> {
   await sleep(500);
 
   // ACT 2
-  header(`ACT 2: SEEDING PROJECT MEMORY → 0G ${useLive ? "TESTNET" : "(MOCK)"}`);
+  header(`ACT 2: SEEDING PROJECT MEMORY → 0G GALILEO TESTNET`);
   bull(`Project: ${projectId}`);
   bull(`Saving ${seedEntries.length} Solidity development memories…`);
   nl();
@@ -919,7 +942,7 @@ async function cmdDemo(flags: Record<string, string | true>): Promise<void> {
   if (dates.length > 0) {
     bull(`Memory span:                ${new Date(Math.min(...dates)).toISOString().split("T")[0]} → ${new Date(Math.max(...dates)).toISOString().split("T")[0]}`);
   }
-  bull(`Storage mode:               ${useLive ? c.green("0G Galileo testnet") : c.yellow("mock (in-memory)")}`);
+  bull(`Storage:                    ${c.green("0G Galileo testnet")}`);
   nl();
   out(c.bold("  Sponsor integrations live in this demo:"));
   bull("0G Foundation  — decentralised memory storage (Turbo) + on-chain root registry");
@@ -965,7 +988,6 @@ async function cmdWalletStatus(flags: Record<string, string | true>): Promise<vo
     config: {
       ens_parent:    process.env.ENS_PARENT_NAME      ?? "0mcp.eth",
       inft_contract: process.env.INFT_CONTRACT_ADDRESS ?? "(not set)",
-      mock_storage:  process.env.MOCK_STORAGE === "true",
     },
     paymaster: { ...pmStatus, sponsoring: pmUse },
   };
@@ -993,17 +1015,60 @@ async function cmdWalletStatus(flags: Record<string, string | true>): Promise<vo
   nl();
   out(c.bold("  Identity:"));
   out(`    ● Parent:      ${dashboard.config.ens_parent}`);
-  out(`    ● Active Brain:${process.env.BRAIN_ENS_NAME ? c.cyan(process.env.BRAIN_ENS_NAME) : c.dim("(none set in .env)")}`);
+  const brainName  = process.env.BRAIN_ENS_NAME ?? "";
+  const brainMode  = process.env.BRAIN_ENS_MODE ?? "";
+  const brainLabel = brainMode === "own" ? c.cyan(brainName) + c.dim(" (yours)")
+                   : brainMode === "loaded" ? c.magenta(brainName) + c.dim(" (imported)")
+                   : brainName ? c.dim(brainName) : c.dim("(none set in .env)");
+  out(`    ● Active Brain:${brainLabel}`);
   out(`    ● iNFT:        ${dashboard.config.inft_contract}`);
-  out(`    ● Storage:     ${dashboard.config.mock_storage ? c.yellow("mock") : c.green("0G Galileo")}`);
+  out(`    ● Storage:     ${c.green("0G Galileo testnet")}`);
   nl();
   out(c.bold("  Tips:"));
   bull("Run `0mcp health` to verify network connectivity.");
   bull("Run `0mcp ens resolve <name>` to check your agent identity.");
+  if (brainMode === "loaded") {
+    bull(c.magenta(`Imported brain ${brainName} — you can use \`load_brain\` MCP tool to inject its context.`));
+    bull(c.dim("To register your own brain, change BRAIN_ENS_LABEL in .env and delete BRAIN_ENS_REGISTERED."));
+  }
   if (!pmStatus.configured && Number(ethers.formatEther(sepBal)) < 0.005) {
     bull(c.yellow("Set PAYMASTER_ADDRESS in .env to enable gas-free ENS ops using 0G tokens."));
   }
   nl();
+}
+
+// ── COMMAND: wallet send ──────────────────────────────────────────────────────
+
+async function cmdWalletSend(recipient: string, amount: string): Promise<void> {
+  if (!recipient || !amount) {
+    err("Usage: 0mcp wallet send <recipient> <amount>");
+    process.exit(1);
+  }
+
+  const zgRpc = process.env.ZG_RPC_URL ?? "https://evmrpc-testnet.0g.ai";
+  const pk = process.env.ZG_PRIVATE_KEY;
+  if (!pk) {
+    err("ZG_PRIVATE_KEY not found in .env");
+    process.exit(1);
+  }
+
+  const zgProvider = new ethers.JsonRpcProvider(zgRpc);
+  const wallet = new ethers.Wallet(pk, zgProvider);
+
+  info(`Sending ${amount} 0G to ${recipient} on 0G Galileo...`);
+  try {
+    const tx = await wallet.sendTransaction({
+      to: recipient,
+      value: ethers.parseEther(amount)
+    });
+    out(`    TX Hash: ${c.cyan(tx.hash)}`);
+    info("Waiting for confirmation...");
+    await tx.wait();
+    ok(`Transaction confirmed! Successfully sent ${c.green(amount)} $OG.`);
+  } catch (e) {
+    err(`Send failed: ${e instanceof Error ? e.message : String(e)}`);
+    process.exit(1);
+  }
 }
 
 // ── MAIN ROUTER ───────────────────────────────────────────────────────────────
@@ -1034,6 +1099,9 @@ async function main(): Promise<void> {
 
     } else if (command === "wallet" && sub1 === "status") {
       await cmdWalletStatus(flags);
+      
+    } else if (command === "wallet" && sub1 === "send") {
+      await cmdWalletSend(sub2 || parsed.positional[2] || "", parsed.positional[3] || "");
 
     } else if (command === "wallet" && sub1 === "projects") {
       // Stub: in a real implementation this would query the on-chain registry

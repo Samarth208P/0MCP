@@ -9,31 +9,38 @@
 
 ## ⚡ Quick Start (Setup in 2 Minutes)
 
-### 1. Install via NPM
+### 1. Install & Initialise
 ```bash
-npm install -g @samarth208p/0mcp
-```
-
-### 2. Run Setup Wizard
-This will generate your **0G/ENS keypairs** and scaffold your `.env` file automatically:
-```bash
+npm install -g @samarth208p/0mcp@latest
 0mcp init
 ```
+The wizard generates your keypair, scaffolds `.env`, and reserves your Brain ENS name.
+
+### 2. Get testnet tokens
+- **0G tokens** → https://faucet.0g.ai  *(for memory storage)*
+- **Sepolia ETH** → https://sepoliafaucet.com  *(for ENS gas — or the built-in paymaster covers this)*
 
 ### 3. Connect your IDE
-Add 0MCP to **Cursor**, **Windsurf**, or **VS Code** (MCP settings):
-- **Command:** `npx -y @samarth208p/0mcp start`
-- **Transport:** `stdio`
+Add 0MCP to **Cursor**, **VS Code**, or **Windsurf** via MCP settings:
+
+| IDE | Command |
+|---|---|
+| Cursor / Windsurf | `npx.cmd -y @samarth208p/0mcp@latest start` *(Windows)* |
+| Cursor / Windsurf | `npx -y @samarth208p/0mcp@latest start` *(Mac/Linux)* |
+
+> See [INSTALLATION.md](./INSTALLATION.md) for step-by-step screenshots for every IDE.
+
+### 4. Create your AI system prompt
+Add `.cursorrules` (Cursor) or `.vscode/instructions.md` (VS Code) to your project root — see [INSTALLATION.md](./INSTALLATION.md) for the recommended prompt.
 
 ---
 
-### Alternative: Install from Source
-If you prefer to build from source:
+### Alternative: Build from Source
 ```bash
 git clone https://github.com/Samarth208P/0MCP.git
 cd 0MCP
 npm install && npm run build
-npm run setup # or node build/src/cli.js init
+node build/src/cli.js init
 ```
 
 ---
@@ -46,7 +53,8 @@ npm run setup # or node build/src/cli.js init
 * **🔐 AES-256-GCM Encryption:** Absolute privacy. All context payloads are encrypted locally using AES-GCM derived from your private key before being sent to 0G. Only you can decrypt your agent's memory.
 * **🧩 IDE Native (MCP):** Zero changes to your workflow. Works out-of-the-box with Cursor, VS Code, and Windsurf via the Model Context Protocol.
 * **💎 Brain iNFTs (ERC-7857):** Accumulate your agent's context over a project and mint it as an intelligent NFT. Share, rent, or sell your agent's domain expertise to others.
-* **🌐 ENS Identity Layer:** Brains aren't just hashes; they are discoverable via ENS (e.g., `solidity-auditor.0mcp.eth`). Rental access is granted seamlessly via ENS subnames (`renter.solidity-auditor.0mcp.eth`).
+* **🌐 ENS Identity Layer:** Brains aren't just hashes; they are discoverable via ENS (e.g., `sampy.0mcp.eth`). Rental access is granted via ENS subnames (`renter.sampy.0mcp.eth`). Brain names are registered **automatically** on first server start.
+* **🤖 Smart Brain Detection:** Already have a brain? The server detects it and adopts it. Pointed to someone else's brain? It loads it as an imported context source — no manual steps.
 * **🛡️ KeeperHub Protected Execution:** When your agent needs to execute an on-chain transaction, 0MCP routes it safely through KeeperHub's MCP proxy, guaranteeing MEV-protection and dynamic gas execution.
 * **🦄 Uniswap V4 Payments:** Want to rent a Brain priced in WETH, but only have USDC? The agent automatically constructs a Uniswap V4 auto-swap and routes it through KeeperHub. Pay in any token.
 
@@ -67,7 +75,7 @@ npm run setup # or node build/src/cli.js init
 
 ## 📖 The Core Loop
 
-1. **Prompt:** You type a prompt in Cursor / VS Code.
+1. **Prompt:** You type a prompt in Cursor / VS Code / Windsurf.
 2. **Retrieve:** 0MCP intercepts it, querying 0G for relevant project history.
 3. **Decrypt & Inject:** Context is decrypted locally and injected into the LLM's system prompt.
 4. **Respond:** Your AI model responds — now with full project memory.

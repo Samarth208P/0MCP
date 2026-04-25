@@ -4,7 +4,6 @@ import { checkStorageHealth } from "../src/storage.js";
 const health = await checkStorageHealth();
 
 console.error("\n0G Health Check");
-console.error(`Mode: ${health.mode}`);
 console.error(
   `Storage backend healthy: ${health.kvHealthy}${health.kvEndpoint ? ` (${health.kvEndpoint})` : ""}`
 );

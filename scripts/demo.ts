@@ -1,18 +1,17 @@
 /**
- * 0MCP Demo Runner — 5-act live demo flow.
+ * 0MCP Demo Runner — 5-act live demo flow using real 0G storage.
  *
  * Run: npm run demo
  * Debug mode (shows context scoring): npm run demo:debug
  *
  * Acts:
  *   ACT 1 — BEFORE:     Ask a coding question with no memory → generic answer
- *   ACT 2 — SEED:       Save 3 memory entries about a real Solidity project
+ *   ACT 2 — SEED:       Save 3 memory entries about a real Solidity project to 0G
  *   ACT 3 — RETRIEVAL:  Ask the same question → 0G memory retrieved, answer is specific
  *   ACT 4 — SNAPSHOT:   Export & mint memory as Brain iNFT on 0G testnet
  *   ACT 5 — STATS:      Print project memory stats and demo summary
  *
- * All 0G writes use MOCK_STORAGE=true by default (set in demo env).
- * To demo with real 0G TX: set MOCK_STORAGE=false + fill .env
+ * Requires: ZG_PRIVATE_KEY, MEMORY_REGISTRY_ADDRESS, ZG_INDEXER_RPC in .env
  */
 
 import "../src/env.js";
@@ -24,10 +23,6 @@ import { extractKeywords } from "../src/utils.js";
 // ── Demo config ───────────────────────────────────────────────────────────────
 
 const PROJECT_ID = process.env.DEMO_PROJECT_ID ?? "ethglobal-0mcp-demo";
-const USE_MOCK = process.env.MOCK_STORAGE !== "false";
-
-// Force mock mode for the demo unless explicitly disabled
-if (USE_MOCK) process.env.MOCK_STORAGE = "true";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -75,6 +70,26 @@ const SEED_ENTRIES = [
   },
 ];
 
+// ── Preflight ─────────────────────────────────────────────────────────────────
+
+async function preflight() {
+  divider("0G PREFLIGHT CHECK");
+  bullet("Checking 0G endpoints before the demo starts…");
+
+  const health = await checkStorageHealth();
+  if (!health.kvHealthy || !health.indexerHealthy) {
+    console.error("");
+    console.error("  ❌ 0G backend is not healthy.");
+    health.issues.forEach((issue) => bullet(issue));
+    console.error("");
+    info("Run `0mcp health` to diagnose. Make sure .env is configured with valid 0G credentials.");
+    throw new Error("0G preflight failed");
+  }
+
+  ok(`Storage backend reachable: ${health.kvEndpoint}`);
+  ok(`Indexer endpoint reachable: ${health.indexerEndpoint}`);
+}
+
 // ── ACT 1: BEFORE (no memory, generic answer) ─────────────────────────────────
 
 async function act1Before() {
@@ -94,30 +109,10 @@ async function act1Before() {
   }
 }
 
-async function preflightLiveStorage() {
-  if (USE_MOCK) return;
-
-  divider("0G PREFLIGHT CHECK");
-  bullet("Checking live 0G endpoints before the demo starts…");
-
-  const health = await checkStorageHealth();
-  if (!health.kvHealthy || !health.indexerHealthy) {
-    console.error("");
-    console.error("  ❌ 0G live mode is not healthy from this machine.");
-    health.issues.forEach((issue) => bullet(issue));
-    console.error("");
-    info("Use MOCK_STORAGE=true for the local demo, or update .env with healthy 0G endpoints.");
-    throw new Error("0G preflight failed");
-  }
-
-  ok(`Storage backend reachable: ${health.kvEndpoint}`);
-  ok(`Indexer endpoint reachable: ${health.indexerEndpoint}`);
-}
-
 // ── ACT 2: SEED (save 3 project memories to 0G) ──────────────────────────────
 
 async function act2Seed() {
-  divider(`ACT 2: SEEDING PROJECT MEMORY → 0G ${USE_MOCK ? "(MOCK MODE)" : "TESTNET"}`);
+  divider("ACT 2: SEEDING PROJECT MEMORY → 0G GALILEO TESTNET");
 
   bullet(`Project: ${PROJECT_ID}`);
   bullet(`Saving ${SEED_ENTRIES.length} real Solidity development memories…`);
@@ -156,7 +151,6 @@ async function act3Retrieval() {
   if (context) {
     ok("Context found! Injecting into agent prompt:");
     console.error("");
-    // Print top 3 lines of the context block for demo
     const preview = context.split("\n").slice(0, 12).join("\n  ");
     console.error(`  ${preview}`);
     console.error(`  …`);
@@ -167,7 +161,7 @@ async function act3Retrieval() {
     console.error(`       pattern, and consider UUPS proxy for upgradeability as you discussed."\n`);
     info("Same AI, same question — but WITH 0MCP memory: specific, actionable, project-aware.");
   } else {
-    console.error("  ⚠️  No retrieval result — check MOCK_STORAGE is enabled or 0G node is reachable");
+    console.error("  ⚠️  No retrieval result — check 0G connectivity with `0mcp health`");
   }
 
   // Print keyword scoring debug (if DEBUG_CONTEXT)
@@ -203,7 +197,7 @@ async function act4Snapshot() {
   const snapshotJson = JSON.stringify(snapshot);
   info(`Snapshot JSON: ${snapshotJson.length} chars (stored as base64 data URI in tokenURI)`);
 
-  if (USE_MOCK || !process.env.INFT_CONTRACT_ADDRESS) {
+  if (!process.env.INFT_CONTRACT_ADDRESS) {
     info("Set INFT_CONTRACT_ADDRESS in .env to mint on 0G testnet.");
     info("Then run: npm run mint");
     return;
@@ -241,7 +235,7 @@ async function act5Stats() {
   if (dates.length > 0) {
     bullet(`Memory span:                ${new Date(Math.min(...dates)).toISOString().split("T")[0]} → ${new Date(Math.max(...dates)).toISOString().split("T")[0]}`);
   }
-  bullet(`Storage mode:               ${USE_MOCK ? "🟡 Mock (in-memory)" : "🟢 0G Galileo testnet"}`);
+  bullet(`Storage:                    🟢 0G Galileo testnet`);
   console.error("\n  Sponsor integrations live in this demo:");
   bullet("0G Foundation  — decentralised memory storage (Turbo) + on-chain root registry");
   bullet("Brain iNFT     — ERC-7857 memory snapshot minting (SimpleINFT.sol)");
@@ -256,9 +250,9 @@ async function act5Stats() {
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 console.error("\n🧠 0MCP — Persistent Memory Layer for AI Coding Agents");
-console.error(`   Storage: ${USE_MOCK ? "MOCK (in-memory)" : "0G Galileo Testnet"} | Project: ${PROJECT_ID}`);
+console.error(`   Storage: 0G Galileo Testnet | Project: ${PROJECT_ID}`);
 
-await preflightLiveStorage();
+await preflight();
 await act1Before();
 await sleep(500);
 await act2Seed();

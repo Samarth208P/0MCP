@@ -1,15 +1,12 @@
 /**
- * 0G Storage Layer — reads and writes project memory on the current 0G testnet.
+ * 0G Storage Layer — reads and writes project memory on the 0G Galileo testnet.
  *
- * Live backend:
+ * Flow:
  *   1. Upload the full project memory bundle to 0G Storage Turbo via the official indexer
  *   2. Persist the latest bundle root hash in a small on-chain registry contract
  *   3. Read by resolving the bundle root from the registry and downloading the JSON bundle
  *
- * Mock backend:
- *   - In-memory Map when MOCK_STORAGE=true
- *
- * This replaces the older public-KV-node flow, which is no longer healthy on Galileo.
+ * All bundles are encrypted with AES-256-GCM keyed from the user's private key.
  *
  * @module storage
  */
@@ -47,11 +44,11 @@ function encryptMemory(data: string, privateKeyHex: string): string {
   const key = crypto.createHash("sha256").update(privateKeyHex).digest();
   const iv = crypto.randomBytes(12);
   const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
-  
+
   let ciphertext = cipher.update(data, "utf8", "hex");
   ciphertext += cipher.final("hex");
   const authTag = cipher.getAuthTag().toString("hex");
-  
+
   return `${iv.toString("hex")}:${authTag}:${ciphertext}`;
 }
 
@@ -59,19 +56,18 @@ function decryptMemory(encrypted: string, privateKeyHex: string): string {
   const key = crypto.createHash("sha256").update(privateKeyHex).digest();
   const parts = encrypted.split(":");
   if (parts.length !== 3) throw new Error("Invalid encrypted data format");
-  
+
   const [ivHex, authTagHex, ciphertextHex] = parts;
   const decipher = crypto.createDecipheriv("aes-256-gcm", key, Buffer.from(ivHex, "hex"));
   decipher.setAuthTag(Buffer.from(authTagHex, "hex"));
-  
+
   let decrypted = decipher.update(ciphertextHex, "hex", "utf8");
   decrypted += decipher.final("utf8");
-  
+
   return decrypted;
 }
 
 export interface StorageHealthStatus {
-  mode: "mock" | "live";
   kvHealthy: boolean;
   indexerHealthy: boolean;
   kvEndpoint?: string;
@@ -79,11 +75,8 @@ export interface StorageHealthStatus {
   issues: string[];
 }
 
-const mockStore = new Map<string, Map<string, string>>();
-
-function isMockStorage(): boolean {
-  return process.env.MOCK_STORAGE === "true";
-}
+// Suppress unused import (getStreamId kept for future key-based lookups)
+void getStreamId;
 
 function getPrivateKey(): string {
   return process.env.ZG_PRIVATE_KEY ?? "";
@@ -120,16 +113,6 @@ async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): P
   } finally {
     if (timer) clearTimeout(timer);
   }
-}
-
-function mockGet(project_id: string, key: string): string | null {
-  return mockStore.get(getStreamId(project_id))?.get(key) ?? null;
-}
-
-function mockSet(project_id: string, key: string, value: unknown): void {
-  const sid = getStreamId(project_id);
-  if (!mockStore.has(sid)) mockStore.set(sid, new Map());
-  mockStore.get(sid)!.set(key, JSON.stringify(value));
 }
 
 function getProvider(): ethers.JsonRpcProvider {
@@ -253,7 +236,7 @@ async function downloadProjectBundle(project_id: string): Promise<StoredProjectM
 
     const raw = await fs.readFile(tempPath, "utf8");
     const parsed = JSON.parse(raw) as StoredProjectMemory;
-    
+
     if (parsed.encrypted_data) {
       try {
         const privateKey = getPrivateKey();
@@ -266,23 +249,18 @@ async function downloadProjectBundle(project_id: string): Promise<StoredProjectM
     } else if (!parsed.entries) {
       parsed.entries = [];
     }
-    
+
     return parsed;
   } finally {
     await fs.unlink(tempPath).catch(() => undefined);
   }
 }
 
+/**
+ * Checks the health of the 0G storage backend.
+ * Verifies: RPC connectivity, indexer availability, on-chain registry responsiveness.
+ */
 export async function checkStorageHealth(): Promise<StorageHealthStatus> {
-  if (isMockStorage()) {
-    return {
-      mode: "mock",
-      kvHealthy: true,
-      indexerHealthy: true,
-      issues: [],
-    };
-  }
-
   const issues: string[] = [];
   let kvHealthy = false;
   let indexerHealthy = false;
@@ -331,7 +309,6 @@ export async function checkStorageHealth(): Promise<StorageHealthStatus> {
   }
 
   return {
-    mode: "live",
     kvHealthy,
     indexerHealthy,
     kvEndpoint,
@@ -340,19 +317,16 @@ export async function checkStorageHealth(): Promise<StorageHealthStatus> {
   };
 }
 
+/**
+ * Saves a single memory entry for the given project to 0G Storage.
+ * Loads existing entries, appends the new one, re-uploads the encrypted bundle,
+ * and updates the on-chain registry root hash.
+ *
+ * @param project_id - Project identifier
+ * @param entry      - Memory entry to append
+ */
 export async function saveMemory(project_id: string, entry: MemoryEntry): Promise<void> {
   const entryKey = `entry:${entry.timestamp}`;
-
-  if (isMockStorage()) {
-    const raw = mockGet(project_id, "index");
-    const idx = raw ? (JSON.parse(raw) as string[]) : [];
-    idx.push(entryKey);
-    mockSet(project_id, entryKey, entry);
-    mockSet(project_id, "index", idx);
-    console.error(`[storage:mock] Saved key=${entryKey} project=${project_id}`);
-    return;
-  }
-
   const existingEntries = await loadAllEntries(project_id);
   const nextEntries = [...existingEntries, entry];
   const { rootHash, txHash, endpoint } = await uploadProjectBundle(project_id, nextEntries);
@@ -362,38 +336,38 @@ export async function saveMemory(project_id: string, entry: MemoryEntry): Promis
   );
 }
 
+/**
+ * Loads a single memory entry by its entry key.
+ *
+ * @param project_id - Project identifier
+ * @param entry_key  - Key in the format "entry:<timestamp>"
+ */
 export async function loadMemory(
   project_id: string,
   entry_key: string
 ): Promise<MemoryEntry | null> {
-  if (isMockStorage()) {
-    const raw = mockGet(project_id, entry_key);
-    return raw ? (JSON.parse(raw) as MemoryEntry) : null;
-  }
-
   const timestamp = Number(entry_key.replace(/^entry:/, ""));
   const entries = await loadAllEntries(project_id);
   return entries.find((entry) => entry.timestamp === timestamp) ?? null;
 }
 
+/**
+ * Returns all entry keys for a project.
+ *
+ * @param project_id - Project identifier
+ */
 export async function getIndex(project_id: string): Promise<string[]> {
-  if (isMockStorage()) {
-    const raw = mockGet(project_id, "index");
-    return raw ? (JSON.parse(raw) as string[]) : [];
-  }
-
   const entries = await loadAllEntries(project_id);
   return entries.map((entry) => `entry:${entry.timestamp}`);
 }
 
+/**
+ * Returns all memory entries for a project from 0G Storage.
+ * Returns an empty array if no bundle exists yet.
+ *
+ * @param project_id - Project identifier
+ */
 export async function loadAllEntries(project_id: string): Promise<MemoryEntry[]> {
-  if (isMockStorage()) {
-    const raw = mockGet(project_id, "index");
-    const keys = raw ? (JSON.parse(raw) as string[]) : [];
-    const entries = await Promise.all(keys.map((k) => loadMemory(project_id, k)));
-    return entries.filter((e): e is MemoryEntry => e !== null);
-  }
-
   const bundle = await downloadProjectBundle(project_id);
   return bundle?.entries ?? [];
 }

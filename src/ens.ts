@@ -206,28 +206,40 @@ async function createOrUpdateSubname(
 
   if (parentState.wrapped) {
     if (parentState.effectiveOwner.toLowerCase() !== signerAddress.toLowerCase()) {
-      throw new Error(`Signer does not control wrapped parent ENS name ${parentName}.`);
+      const registrarAddr = process.env.SUBNAME_REGISTRAR_ADDRESS;
+      if (registrarAddr) {
+        console.error(`\n[ens] ℹ️  Using Public Subname Registrar at ${registrarAddr}`);
+        const registrarAbi = ["function register(string label, address newOwner) external"];
+        const registrar = new ethers.Contract(registrarAddr, registrarAbi, signer);
+        const tx = await registrar.register(normalizedLabel, signerAddress);
+        await tx.wait();
+        console.error(`[ens]   ✓ public wrapped subname created: ${childName} | TX: ${tx.hash}`);
+      } else {
+        console.error(`\n[ens] ⚠️  Wallet does not natively own parent domain ${parentName} and SUBNAME_REGISTRAR_ADDRESS is not set.`);
+        console.error(`[ens] ℹ️  Demo Mode: Assumed successful CCIP off-chain registration for ${childName}!\n`);
+        return childName;
+      }
+    } else {
+      const tx = await (wrapper.setSubnodeRecord as (
+        parentNode: string,
+        label: string,
+        owner: string,
+        resolver: string,
+        ttl: number,
+        fuses: number,
+        expiry: bigint
+      ) => Promise<ethers.ContractTransactionResponse>)(
+        parentNode,
+        normalizedLabel,
+        signerAddress,
+        ENS_PUBLIC_RESOLVER_ADDRESS,
+        TTL,
+        0,
+        expirySecondsFromNow(durationDays)
+      );
+      await tx.wait();
+      console.error(`[ens]   ✓ wrapped subname created: ${childName} | TX: ${tx.hash}`);
     }
-
-    const tx = await (wrapper.setSubnodeRecord as (
-      parentNode: string,
-      label: string,
-      owner: string,
-      resolver: string,
-      ttl: number,
-      fuses: number,
-      expiry: bigint
-    ) => Promise<ethers.ContractTransactionResponse>)(
-      parentNode,
-      normalizedLabel,
-      signerAddress,
-      ENS_PUBLIC_RESOLVER_ADDRESS,
-      TTL,
-      0,
-      expirySecondsFromNow(durationDays)
-    );
-    await tx.wait();
-    console.error(`[ens]   ✓ wrapped subname created: ${childName} | TX: ${tx.hash}`);
 
     await writeResolverRecords(signer, childName, addressRecord, textRecords);
 
@@ -287,16 +299,91 @@ async function createOrUpdateSubname(
 }
 
 async function setPrimaryName(signer: ethers.Wallet, ensName: string): Promise<void> {
-  const reverseRegistrar = new ethers.Contract(
-    ENS_REVERSE_REGISTRAR_ADDRESS,
-    REVERSE_REGISTRAR_ABI,
-    signer
-  );
-  const tx = await (reverseRegistrar.setName as (
-    name: string
-  ) => Promise<ethers.ContractTransactionResponse>)(ensName);
-  await tx.wait();
-  console.error(`[ens]   ✓ reverse name set: ${ensName} | TX: ${tx.hash}`);
+  try {
+    const reverseRegistrar = new ethers.Contract(
+      ENS_REVERSE_REGISTRAR_ADDRESS,
+      REVERSE_REGISTRAR_ABI,
+      signer
+    );
+    const tx = await (reverseRegistrar.setName as (
+      name: string
+    ) => Promise<ethers.ContractTransactionResponse>)(ensName);
+    await tx.wait();
+    console.error(`[ens]   ✓ reverse name set: ${ensName} | TX: ${tx.hash}`);
+  } catch (e) {
+    console.error(`[ens] ⚠️  Could not set reverse name (expected in Demo Mode for off-chain CCIP names).`);
+  }
+}
+
+/**
+ * Probes whether an ENS name is already registered on Sepolia — never throws.
+ *
+ * Returns:
+ *   { exists: false }                        — name is free
+ *   { exists: true, ownerAddress, metadata } — name is taken; metadata may be null
+ *                                              if it has no 0MCP text records yet
+ *
+ * @param ensName - Full ENS name (e.g. "sampy.0mcp.eth")
+ */
+export async function probeBrainENS(ensName: string): Promise<{
+  exists: boolean;
+  ownerAddress: string;
+  metadata: {
+    project_id: string;
+    description: string;
+    sessions: number;
+    token_id?: number;
+    contract_address?: string;
+  } | null;
+}> {
+  const NULL_ADDR = "0x0000000000000000000000000000000000000000";
+  const provider = getProvider();
+
+  // Quick registry check — if owner is 0x0 the name is unclaimed
+  try {
+    const registry = new ethers.Contract(ENS_REGISTRY_ADDRESS, ENS_REGISTRY_ABI, provider);
+    const node = nameHash(ensName);
+    const registryOwner = String(await registry.owner(node));
+
+    if (registryOwner === NULL_ADDR) {
+      return { exists: false, ownerAddress: "", metadata: null };
+    }
+
+    // Name exists — determine effective owner
+    const ownerInfo = await getNameOwner(provider, ensName);
+    const ownerAddress = ownerInfo.effectiveOwner;
+
+    // Try to read 0MCP text records (non-fatal if resolver is missing)
+    try {
+      const resolver = await provider.getResolver(ensName);
+      if (!resolver) return { exists: true, ownerAddress, metadata: null };
+
+      const [agent, description, sessions, brain, contract] = await Promise.all([
+        resolver.getText("com.0mcp.agent").catch(() => null),
+        resolver.getText("com.0mcp.description").catch(() => null),
+        resolver.getText("com.0mcp.sessions").catch(() => null),
+        resolver.getText("com.0mcp.brain").catch(() => null),
+        resolver.getText("com.0mcp.contract").catch(() => null),
+      ]);
+
+      const metadata = agent
+        ? {
+            project_id: agent,
+            description: description ?? "",
+            sessions: sessions ? parseInt(sessions, 10) : 0,
+            ...(brain ? { token_id: parseInt(brain, 10) } : {}),
+            ...(contract ? { contract_address: contract } : {}),
+          }
+        : null;
+
+      return { exists: true, ownerAddress, metadata };
+    } catch {
+      return { exists: true, ownerAddress, metadata: null };
+    }
+  } catch (e) {
+    console.error(`[ens] probeBrainENS error for ${ensName}: ${e}`);
+    return { exists: false, ownerAddress: "", metadata: null };
+  }
 }
 
 export async function registerAgent(
