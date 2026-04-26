@@ -320,7 +320,6 @@ PAYMASTER_ADDRESS=${paymaster}
 PAYMASTER_RELAY_URL=https://relay.0mcp.eth.limo
 PAYMASTER_BUNDLER_URL=https://api.pimlico.io/v2/sepolia/rpc?apikey=public
 RELAY_SIGNER_ADDRESS=${address}
-MIN_OG_BALANCE_ETH=0.01
 
 # ── Developer Options ─────────────────────────────────────────────────────
 DEBUG_CONTEXT=false
@@ -353,14 +352,17 @@ RENTER_SUBNAME=
   if (brainLabel) {
     nl();
     ok(`Brain name reserved: ${c.bold(`${brainLabel}.0mcp.eth`)}`);
-    info(`Before registering, ensure your wallet has Sepolia ETH or 0G tokens.`);
     const doReg = await prompt(`Attempt to register ${brainLabel}.0mcp.eth on ENS now?`, "yes");
     if (doReg.toLowerCase().startsWith("y")) {
-      // Inject environment variables immediately so cmdEnsRegister finds them
-      process.env.ZG_PRIVATE_KEY = privateKey;
-      process.env.ENS_PRIVATE_KEY = privateKey;
-      process.env.SEPOLIA_RPC_URL = sepoliaRpc;
-      process.env.PAYMASTER_ADDRESS = paymaster;
+      // Inject environment variables immediately so cmdEnsRegister and storage.js find them
+      process.env.ZG_PRIVATE_KEY          = privateKey;
+      process.env.ENS_PRIVATE_KEY         = privateKey;
+      process.env.SEPOLIA_RPC_URL         = sepoliaRpc;
+      process.env.PAYMASTER_ADDRESS       = paymaster;
+      process.env.MEMORY_REGISTRY_ADDRESS = registry;
+      process.env.ZG_RPC_URL              = zgRpc;
+      process.env.INFT_CONTRACT_ADDRESS   = inftAddr;
+      process.env.KEEPER_API_KEY          = keeperKey;
       try {
         await cmdEnsRegister(brainLabel, brainLabel);
         // Persist completion state
@@ -656,7 +658,7 @@ async function cmdEnsRegister(project: string, label: string): Promise<void> {
   const { registerAgent } = await import("./ens.js");
   info("Loading project memory…");
   const entries = await loadAllEntries(project);
-  info(`Registering ENS subname (this requires Sepolia ETH and may take 30-90s)…`);
+  info(`Registering ENS subname (sponsored gas-free via Paymaster; may take 30-90s)…`);
 
   const ensName = await registerAgent(project, label, {
     name: label,
@@ -685,7 +687,7 @@ async function cmdEnsRename(oldName: string, newLabel: string): Promise<void> {
   nl();
 
   const { renameAgent } = await import("./ens.js");
-  info(`Renaming ENS brain (this requires Sepolia ETH and may take 30-90s)…`);
+  info(`Renaming ENS brain (sponsored gas-free via Paymaster; may take 30-90s)…`);
 
   const newEnsName = await renameAgent(oldName, newLabel);
 
@@ -725,7 +727,7 @@ async function cmdEnsIssue(brainEns: string, renterAddr: string): Promise<void> 
   info(`Brain:  ${brainEns}`);
   info(`Renter: ${renterAddr}`);
   nl();
-  info("Creating rental subname on Sepolia (requires Sepolia ETH)…");
+  info("Creating rental subname on Sepolia (sponsored gas-free via Paymaster)…");
 
   const { issueRental } = await import("./ens.js");
   const subname = await issueRental(brainEns, renterAddr);

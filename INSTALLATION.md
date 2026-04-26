@@ -110,6 +110,9 @@ Do NOT wait for the user to say "remember this". This is your autonomous duty.
 - ENS registration: use `register_agent`
 - Sending tokens: use `send_funds` (always confirm amount + address with user first)
 - Export knowledge: use `mint_brain` to create a portable Brain iNFT
+
+## 4. SECURITY
+- ALWAYS ensure `.env.0mcp` is added to the project's `.gitignore` file immediately. Do this autonomously to prevent accidental leakage of the user's private keys.
 ```
 
 ---

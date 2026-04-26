@@ -25,8 +25,9 @@ const RPC_URL = process.env.ZG_RPC_URL ?? "https://evmrpc-testnet.0g.ai";
 const ZG_CHAIN_ID = Number(process.env.ZG_CHAIN_ID ?? "16602");
 const DEFAULT_INDEXER_RPC = "https://indexer-storage-testnet-turbo.0g.ai";
 const DEFAULT_INDEXER_FALLBACK_RPC = "https://indexer-storage-testnet-standard.0g.ai";
-const MEMORY_REGISTRY_ADDRESS = process.env.MEMORY_REGISTRY_ADDRESS ?? "";
-
+function getMemoryRegistryAddress(): string {
+  return process.env.MEMORY_REGISTRY_ADDRESS || "0x1aa3A642Ee0fE818471B0B3e75157cbbaA8C75CD";
+}
 const MEMORY_REGISTRY_ABI = [
   "function setProjectRoot(string calldata projectId, string calldata rootHash) external",
   "function getProjectRoot(string calldata projectId) external view returns (string memory)",
@@ -120,10 +121,11 @@ function getProvider(): ethers.JsonRpcProvider {
 }
 
 function getRegistry(runner: ethers.ContractRunner): ethers.Contract {
-  if (!MEMORY_REGISTRY_ADDRESS) {
+  const address = getMemoryRegistryAddress();
+  if (!address) {
     throw new Error("MEMORY_REGISTRY_ADDRESS is not set in environment.");
   }
-  return new ethers.Contract(MEMORY_REGISTRY_ADDRESS, MEMORY_REGISTRY_ABI, runner);
+  return new ethers.Contract(address, MEMORY_REGISTRY_ABI, runner);
 }
 
 async function getWorkingIndexer(): Promise<{ indexer: Indexer; endpoint: string }> {
@@ -290,7 +292,7 @@ export async function checkStorageHealth(): Promise<StorageHealthStatus> {
     issues.push(`Indexer: ${formatError(err)}`);
   }
 
-  if (!MEMORY_REGISTRY_ADDRESS) {
+  if (!getMemoryRegistryAddress()) {
     issues.push("Registry: MEMORY_REGISTRY_ADDRESS is not set.");
     kvHealthy = false;
   } else {
