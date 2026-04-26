@@ -28,14 +28,14 @@ import "./env.js";
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
-const SEPOLIA_RPC_URL       = process.env.SEPOLIA_RPC_URL ?? "https://rpc.sepolia.org";
-const ZG_RPC_URL            = process.env.ZG_RPC_URL    ?? "https://evmrpc-testnet.0g.ai";
-const ZG_CHAIN_ID           = Number(process.env.ZG_CHAIN_ID ?? "16602");
-const PAYMASTER_ADDRESS     = process.env.PAYMASTER_ADDRESS ?? "";
-const PAYMASTER_RELAY_URL   = process.env.PAYMASTER_RELAY_URL ?? "https://relay.0mcp.eth.limo";
-const PAYMASTER_BUNDLER_URL = process.env.PAYMASTER_BUNDLER_URL
+const getSepoliaRpcUrl = () => process.env.SEPOLIA_RPC_URL ?? "https://ethereum-sepolia-rpc.publicnode.com";
+const getZgRpcUrl = () => process.env.ZG_RPC_URL ?? "https://evmrpc-testnet.0g.ai";
+const getZgChainId = () => Number(process.env.ZG_CHAIN_ID ?? "16602");
+const getPaymasterAddress = () => process.env.PAYMASTER_ADDRESS ?? "0xb1Ab695dbcbA334A60712234d46264A617AD6d7f";
+const getPaymasterRelayUrl = () => process.env.PAYMASTER_RELAY_URL ?? "https://relay.0mcp.eth.limo";
+const getPaymasterBundlerUrl = () => process.env.PAYMASTER_BUNDLER_URL
   ?? "https://api.pimlico.io/v2/sepolia/rpc?apikey=public";
-const RELAY_SIGNER_ADDRESS  = process.env.RELAY_SIGNER_ADDRESS ?? "";
+const getRelaySignerAddress = () => process.env.RELAY_SIGNER_ADDRESS ?? "";
 
 // ERC-4337 EntryPoint on Sepolia (v0.6)
 const ENTRY_POINT = "0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789";
@@ -86,7 +86,7 @@ export interface SponsoredTxResult {
  */
 export async function hasSepoliaBalance(address: string): Promise<boolean> {
   try {
-    const provider = new ethers.JsonRpcProvider(SEPOLIA_RPC_URL);
+    const provider = new ethers.JsonRpcProvider(getSepoliaRpcUrl());
     const balance  = await provider.getBalance(address);
     return balance >= ethers.parseEther("0.005");
   } catch {
@@ -103,7 +103,7 @@ export async function hasSepoliaBalance(address: string): Promise<boolean> {
  * Exports a simple decision function — ens.ts calls this before every write.
  */
 export async function shouldUsePaymaster(address: string): Promise<boolean> {
-  if (!PAYMASTER_ADDRESS) return false;
+  if (!getPaymasterAddress()) return false;
   const hasSep = await hasSepoliaBalance(address);
   return !hasSep;
 }
@@ -128,7 +128,7 @@ interface RelayResponse {
  * The relay verifies 0G balance on-chain, then signs the operation.
  */
 async function requestRelaySignature(req: RelayRequest): Promise<RelayResponse> {
-  const response = await fetch(`${PAYMASTER_RELAY_URL}/sign`, {
+  const response = await fetch(`${getPaymasterRelayUrl()}/sign`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(req),
@@ -162,9 +162,9 @@ export async function submitSponsoredENSTx(
   calldata: string,
 ): Promise<SponsoredTxResult> {
   const userAddress = await signer.getAddress();
-  const sepProvider = new ethers.JsonRpcProvider(SEPOLIA_RPC_URL);
-  const zgProvider  = new ethers.JsonRpcProvider(ZG_RPC_URL, ZG_CHAIN_ID);
-  const bundlerProvider = new ethers.JsonRpcProvider(PAYMASTER_BUNDLER_URL);
+  const sepProvider = new ethers.JsonRpcProvider(getSepoliaRpcUrl());
+  const zgProvider  = new ethers.JsonRpcProvider(getZgRpcUrl(), getZgChainId());
+  const bundlerProvider = new ethers.JsonRpcProvider(getPaymasterBundlerUrl());
 
   // 1. Get 0G balance for relay verification
   const zgBalance = ethers.formatEther(await zgProvider.getBalance(userAddress));
@@ -233,7 +233,7 @@ export async function submitSponsoredENSTx(
   return {
     userOpHash: submittedHash,
     txHash:     submittedHash, // bundler returns userOpHash; receipt resolved async
-    bundler:    PAYMASTER_BUNDLER_URL,
+    bundler:    getPaymasterBundlerUrl(),
   };
 }
 
@@ -281,10 +281,10 @@ export interface PaymasterStatus {
  */
 export function getPaymasterStatus(): PaymasterStatus {
   return {
-    paymasterAddress:  PAYMASTER_ADDRESS  || "(not deployed)",
-    relayUrl:          PAYMASTER_RELAY_URL,
-    bundlerUrl:        PAYMASTER_BUNDLER_URL,
-    configured:        !!PAYMASTER_ADDRESS,
-    relaySigner:       RELAY_SIGNER_ADDRESS || "(not set)",
+    paymasterAddress:  getPaymasterAddress()  || "(not deployed)",
+    relayUrl:          getPaymasterRelayUrl(),
+    bundlerUrl:        getPaymasterBundlerUrl(),
+    configured:        !!getPaymasterAddress(),
+    relaySigner:       getRelaySignerAddress() || "(not set)",
   };
 }

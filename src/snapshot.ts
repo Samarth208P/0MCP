@@ -17,13 +17,13 @@ import type { MemoryEntry, MemorySnapshot, MintResult } from "./types.js";
 
 // ── Environment ───────────────────────────────────────────────────────────────
 
-const RPC_URL = process.env.ZG_RPC_URL ?? "https://evmrpc-testnet.0g.ai";
-const PRIVATE_KEY = process.env.ZG_PRIVATE_KEY ?? "";
-const INFT_CONTRACT_ADDRESS = process.env.INFT_CONTRACT_ADDRESS ?? "";
-const ZG_CHAIN_ID = Number(process.env.ZG_CHAIN_ID ?? "16602");
+const getZgRpcUrl = () => process.env.ZG_RPC_URL ?? "https://evmrpc-testnet.0g.ai";
+const getZgPrivateKey = () => process.env.ZG_PRIVATE_KEY ?? "";
+const getInftContractAddress = () => process.env.INFT_CONTRACT_ADDRESS ?? "0xd07059e54017BbF424223cb089ffBC5e2558cF56";
+const getZgChainId = () => Number(process.env.ZG_CHAIN_ID ?? "16602");
 
 // Sepolia RPC for ENS resolution
-const SEPOLIA_RPC_URL = process.env.SEPOLIA_RPC_URL ?? "https://rpc.sepolia.org";
+const getSepoliaRpcUrl = () => process.env.SEPOLIA_RPC_URL ?? "https://ethereum-sepolia-rpc.publicnode.com";
 
 // ── Minimal ERC-7857 ABI (mint + tokenURI + intelligence) ────────────────────
 
@@ -105,25 +105,25 @@ export async function mintSnapshot(
   snapshot: MemorySnapshot,
   recipientAddress: string
 ): Promise<MintResult> {
-  if (!INFT_CONTRACT_ADDRESS) {
+  if (!getInftContractAddress()) {
     throw new Error(
       "INFT_CONTRACT_ADDRESS is not set. Deploy contracts/SimpleINFT.sol via Foundry first."
     );
   }
-  if (!PRIVATE_KEY) {
+  if (!getZgPrivateKey()) {
     throw new Error("ZG_PRIVATE_KEY is not set in environment.");
   }
 
-  const provider = new ethers.JsonRpcProvider(RPC_URL, ZG_CHAIN_ID);
-  const signer = new ethers.Wallet(PRIVATE_KEY, provider);
-  const contract = new ethers.Contract(INFT_CONTRACT_ADDRESS, INFT_ABI, signer);
+  const provider = new ethers.JsonRpcProvider(getZgRpcUrl(), getZgChainId());
+  const signer = new ethers.Wallet(getZgPrivateKey(), provider);
+  const contract = new ethers.Contract(getInftContractAddress(), INFT_ABI, signer);
 
   // Encode snapshot as base64 data URI — no IPFS, no external dependency
   const snapshotJson = JSON.stringify(snapshot);
   const base64 = Buffer.from(snapshotJson).toString("base64");
   const metadataURI = `data:application/json;base64,${base64}`;
 
-  console.error(`[snapshot] Minting to ${recipientAddress} on 0G testnet (chain ${ZG_CHAIN_ID})…`);
+  console.error(`[snapshot] Minting to ${recipientAddress} on 0G testnet (chain ${getZgChainId()})…`);
   console.error(`[snapshot] Snapshot: ${snapshot.entry_count} entries, URI length: ${metadataURI.length} chars`);
 
   const tx = await (contract.mint as (to: string, uri: string) => Promise<ethers.ContractTransactionResponse>)(
@@ -160,7 +160,7 @@ export async function mintSnapshot(
  */
 export async function loadBrain(ensName: string): Promise<MemorySnapshot> {
   // Step 1: Resolve ENS on Sepolia to get token ID and contract address
-  const sepoliaProvider = new ethers.JsonRpcProvider(SEPOLIA_RPC_URL);
+  const sepoliaProvider = new ethers.JsonRpcProvider(getSepoliaRpcUrl());
 
   const resolver = await sepoliaProvider.getResolver(ensName);
   if (!resolver) {
@@ -174,7 +174,7 @@ export async function loadBrain(ensName: string): Promise<MemorySnapshot> {
     throw new Error(`No com.0mcp.brain text record set on ${ensName}. Run register_agent first.`);
   }
 
-  const resolvedContract = contractAddr || INFT_CONTRACT_ADDRESS;
+  const resolvedContract = contractAddr || getInftContractAddress();
   if (!resolvedContract) {
     throw new Error(
       "No contract address: set INFT_CONTRACT_ADDRESS env or com.0mcp.contract text record on ENS."
@@ -182,7 +182,7 @@ export async function loadBrain(ensName: string): Promise<MemorySnapshot> {
   }
 
   // Step 2: Fetch tokenURI from the iNFT contract on 0G testnet
-  const zgProvider = new ethers.JsonRpcProvider(RPC_URL, ZG_CHAIN_ID);
+  const zgProvider = new ethers.JsonRpcProvider(getZgRpcUrl(), getZgChainId());
   const contract = new ethers.Contract(resolvedContract, INFT_ABI, zgProvider);
 
   const tokenId = BigInt(tokenIdStr);

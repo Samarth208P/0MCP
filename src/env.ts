@@ -86,8 +86,8 @@ export function loadLocalEnv(startDir?: string, project_id?: string): void {
     const parsed = parseLine(line);
     if (!parsed) continue;
     const [key, value] = parsed;
-    // Don't overwrite existing process.env unless specifically needed
-    if (process.env[key] === undefined || project_id) {
+    // Don't overwrite existing process.env with empty strings unless specifically needed
+    if ((process.env[key] === undefined || project_id) && value) {
       process.env[key] = value;
     }
   }

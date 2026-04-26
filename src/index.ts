@@ -486,7 +486,7 @@ server.registerTool(
         symbol = "0G";
         network = "0G Galileo";
       } else {
-        rpcUrl = process.env.SEPOLIA_RPC_URL ?? "https://rpc.sepolia.org";
+        rpcUrl = process.env.SEPOLIA_RPC_URL ?? "https://ethereum-sepolia-rpc.publicnode.com";
         pk = process.env.ENS_PRIVATE_KEY ?? process.env.ZG_PRIVATE_KEY ?? "";
         symbol = "ETH";
         network = "Sepolia";

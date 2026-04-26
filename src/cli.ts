@@ -448,7 +448,7 @@ async function cmdHealth(): Promise<void> {
 
   // Sepolia / ENS connectivity
   info("Checking Sepolia ENS connectivity…");
-  const sepoliaRpc = process.env.SEPOLIA_RPC_URL ?? "https://rpc.sepolia.org";
+  const sepoliaRpc = process.env.SEPOLIA_RPC_URL ?? "https://ethereum-sepolia-rpc.publicnode.com";
   const ensRegistry = process.env.ENS_REGISTRY_ADDRESS ?? "0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e";
   try {
     const provider = new ethers.JsonRpcProvider(sepoliaRpc);
@@ -1020,7 +1020,7 @@ async function cmdWalletStatus(flags: Record<string, string | true>): Promise<vo
   if (!address) { err("MY_WALLET_ADDRESS not set in .env"); return; }
 
   const zgRpc  = process.env.ZG_RPC_URL      ?? "https://evmrpc-testnet.0g.ai";
-  const sepRpc = process.env.SEPOLIA_RPC_URL  ?? "https://rpc.sepolia.org";
+  const sepRpc = process.env.SEPOLIA_RPC_URL  ?? "https://ethereum-sepolia-rpc.publicnode.com";
 
   const zgProvider  = new ethers.JsonRpcProvider(zgRpc);
   const sepProvider = new ethers.JsonRpcProvider(sepRpc);
@@ -1111,7 +1111,7 @@ async function cmdWalletSend(asset: string, recipient: string, amount: string): 
     symbol = "0G";
     networkName = "0G Galileo";
   } else if (assetLow === "eth") {
-    rpcUrl = process.env.SEPOLIA_RPC_URL ?? "https://rpc.sepolia.org";
+    rpcUrl = process.env.SEPOLIA_RPC_URL ?? "https://ethereum-sepolia-rpc.publicnode.com";
     pk = process.env.ENS_PRIVATE_KEY ?? process.env.ZG_PRIVATE_KEY ?? "";
     symbol = "ETH";
     networkName = "Sepolia";

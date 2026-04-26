@@ -15,18 +15,18 @@ import "./env.js";
 import type { BrainMetadata, AccessResult } from "./types.js";
 import { shouldUsePaymaster, submitSponsoredENSTx } from "./paymaster.js";
 
-const SEPOLIA_RPC_URL = process.env.SEPOLIA_RPC_URL ?? "https://rpc.sepolia.org";
-const ENS_PRIVATE_KEY = process.env.ENS_PRIVATE_KEY ?? "";
-const ENS_PARENT_NAME = process.env.ENS_PARENT_NAME ?? "0mcp.eth";
-const ENS_REGISTRY_ADDRESS =
+const getSepoliaRpcUrl = () => process.env.SEPOLIA_RPC_URL ?? "https://ethereum-sepolia-rpc.publicnode.com";
+const getEnsPrivateKey = () => process.env.ENS_PRIVATE_KEY ?? "";
+const getEnsParentName = () => process.env.ENS_PARENT_NAME ?? "0mcp.eth";
+const getEnsRegistryAddress = () =>
   process.env.ENS_REGISTRY_ADDRESS ?? "0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e";
-const ENS_PUBLIC_RESOLVER_ADDRESS =
+const getEnsResolverAddress = () =>
   process.env.ENS_RESOLVER_ADDRESS ?? "0xE99638b40E4Fff0129D56f03b55b6bbC4BBE49b5";
-const ENS_NAME_WRAPPER_ADDRESS =
+const getEnsNameWrapperAddress = () =>
   process.env.ENS_NAME_WRAPPER_ADDRESS ?? "0x0635513f179D50A207757E05759CbD106d7dFcE8";
-const ENS_REVERSE_REGISTRAR_ADDRESS =
+const getEnsReverseRegistrarAddress = () =>
   process.env.ENS_REVERSE_REGISTRAR_ADDRESS ?? "0x4F382928805ba0e23B30cFB75fC9E848e82DFD47";
-const DEFAULT_RENTAL_DURATION_DAYS = Number(process.env.RENTAL_DURATION_DAYS ?? "30");
+const getRentalDurationDays = () => Number(process.env.RENTAL_DURATION_DAYS ?? "30");
 
 const ENS_REGISTRY_ABI = [
   "function owner(bytes32 node) external view returns (address)",
@@ -67,7 +67,7 @@ function tokenIdForName(name: string): bigint {
 }
 
 function getProvider(): ethers.JsonRpcProvider {
-  return new ethers.JsonRpcProvider(SEPOLIA_RPC_URL);
+  return new ethers.JsonRpcProvider(getSepoliaRpcUrl());
 }
 
 /**
@@ -76,7 +76,7 @@ function getProvider(): ethers.JsonRpcProvider {
  * not separately set — safe since ENS Sepolia and 0G Galileo are separate chains.
  */
 function getSigner(): ethers.Wallet {
-  const key = ENS_PRIVATE_KEY || process.env.ZG_PRIVATE_KEY || "";
+  const key = getEnsPrivateKey() || process.env.ZG_PRIVATE_KEY || "";
   if (!key) {
     throw new Error("No signing key found — set ENS_PRIVATE_KEY or ZG_PRIVATE_KEY in .env");
   }
@@ -145,12 +145,12 @@ async function getNameOwner(
   provider: ethers.JsonRpcProvider,
   ensName: string
 ): Promise<{ registryOwner: string; effectiveOwner: string; wrapped: boolean }> {
-  const registry = new ethers.Contract(ENS_REGISTRY_ADDRESS, ENS_REGISTRY_ABI, provider);
+  const registry = new ethers.Contract(getEnsRegistryAddress(), ENS_REGISTRY_ABI, provider);
   const node = nameHash(ensName);
   const registryOwner = String(await registry.owner(node));
 
-  if (registryOwner.toLowerCase() === ENS_NAME_WRAPPER_ADDRESS.toLowerCase()) {
-    const wrapper = new ethers.Contract(ENS_NAME_WRAPPER_ADDRESS, NAME_WRAPPER_ABI, provider);
+  if (registryOwner.toLowerCase() === getEnsNameWrapperAddress().toLowerCase()) {
+    const wrapper = new ethers.Contract(getEnsNameWrapperAddress(), NAME_WRAPPER_ABI, provider);
     const effectiveOwner = String(await wrapper.ownerOf(tokenIdForName(ensName)));
     return { registryOwner, effectiveOwner, wrapped: true };
   }
@@ -165,7 +165,7 @@ async function writeResolverRecords(
   textRecords: Array<[string, string]>
 ): Promise<void> {
   const node = nameHash(ensName);
-  const resolver = new ethers.Contract(ENS_PUBLIC_RESOLVER_ADDRESS, PUBLIC_RESOLVER_ABI, signer);
+  const resolver = new ethers.Contract(getEnsResolverAddress(), PUBLIC_RESOLVER_ABI, signer);
 
   if (addressRecord) {
     const { txHash } = await sponsoredWrite(signer, resolver, "setAddr", [node, addressRecord]);
@@ -190,15 +190,15 @@ async function createOrUpdateSubname(
   const normalizedLabel = requireSubLabel(label);
   const childName = buildChildName(normalizedLabel, parentName);
   const provider = signer.provider as ethers.JsonRpcProvider;
-  const registry = new ethers.Contract(ENS_REGISTRY_ADDRESS, ENS_REGISTRY_ABI, signer);
-  const wrapper = new ethers.Contract(ENS_NAME_WRAPPER_ADDRESS, NAME_WRAPPER_ABI, signer);
+  const registry = new ethers.Contract(getEnsRegistryAddress(), ENS_REGISTRY_ABI, signer);
+  const wrapper = new ethers.Contract(getEnsNameWrapperAddress(), NAME_WRAPPER_ABI, signer);
 
   const parentState = await getNameOwner(provider, parentName);
   const parentNode = nameHash(parentName);
   const signerAddress = await signer.getAddress();
 
   if (parentState.effectiveOwner.toLowerCase() !== signerAddress.toLowerCase()) {
-    const registrarAddr = process.env.SUBNAME_REGISTRAR_ADDRESS;
+    const registrarAddr = process.env.SUBNAME_REGISTRAR_ADDRESS ?? "0xA2C96740159b7a47541DEfF991aD5edfa671661d";
     if (registrarAddr) {
       console.error(`\n[ens] ℹ️  Using Public Subname Registrar at ${registrarAddr}`);
       const registrarAbi = ["function register(string label, address newOwner) external"];
@@ -246,7 +246,7 @@ async function createOrUpdateSubname(
       parentNode,
       normalizedLabel,
       signerAddress,
-      ENS_PUBLIC_RESOLVER_ADDRESS,
+      getEnsResolverAddress(),
       TTL,
       0,
       expirySecondsFromNow(durationDays)
@@ -273,7 +273,7 @@ async function createOrUpdateSubname(
     parentNode,
     labelHash(normalizedLabel),
     signerAddress,
-    ENS_PUBLIC_RESOLVER_ADDRESS,
+    getEnsResolverAddress(),
     TTL
   ]);
   console.error(`[ens]   ✓ subname created: ${childName} | TX: ${txHash}`);
@@ -294,7 +294,7 @@ async function createOrUpdateSubname(
 async function setPrimaryName(signer: ethers.Wallet, ensName: string): Promise<void> {
   try {
     const reverseRegistrar = new ethers.Contract(
-      ENS_REVERSE_REGISTRAR_ADDRESS,
+      getEnsReverseRegistrarAddress(),
       REVERSE_REGISTRAR_ABI,
       signer
     );
@@ -331,7 +331,7 @@ export async function probeBrainENS(ensName: string): Promise<{
 
   // Quick registry check — if owner is 0x0 the name is unclaimed
   try {
-    const registry = new ethers.Contract(ENS_REGISTRY_ADDRESS, ENS_REGISTRY_ABI, provider);
+    const registry = new ethers.Contract(getEnsRegistryAddress(), ENS_REGISTRY_ABI, provider);
     const node = nameHash(ensName);
     const registryOwner = String(await registry.owner(node));
 
@@ -376,6 +376,8 @@ export async function probeBrainENS(ensName: string): Promise<{
   }
 }
 
+const getInftContractAddress = () => process.env.INFT_CONTRACT_ADDRESS ?? "0xd07059e54017BbF424223cb089ffBC5e2558cF56";
+
 export async function registerAgent(
   project_id: string,
   name: string,
@@ -385,7 +387,7 @@ export async function registerAgent(
   const signerAddress = await signer.getAddress();
   const ensName = await createOrUpdateSubname(
     signer,
-    ENS_PARENT_NAME,
+    getEnsParentName(),
     name,
     signerAddress,
     signerAddress,
@@ -397,8 +399,8 @@ export async function registerAgent(
       ...(metadata.contract_address
         ? [["com.0mcp.contract", metadata.contract_address] as [string, string]]
         : []),
-      ...(process.env.INFT_CONTRACT_ADDRESS
-        ? [["com.0mcp.contract", process.env.INFT_CONTRACT_ADDRESS] as [string, string]]
+      ...(getInftContractAddress()
+        ? [["com.0mcp.contract", getInftContractAddress()] as [string, string]]
         : []),
     ],
     365
@@ -416,7 +418,7 @@ export async function lookupPrimaryBrain(address: string): Promise<string | null
   try {
     const provider = getProvider();
     const name = await provider.lookupAddress(address);
-    if (name && name.endsWith(`.${ENS_PARENT_NAME}`)) {
+    if (name && name.endsWith(`.${getEnsParentName()}`)) {
       return name;
     }
     return null;
@@ -440,7 +442,7 @@ export async function renameAgent(
 
   const newEnsName = await createOrUpdateSubname(
     signer,
-    ENS_PARENT_NAME,
+    getEnsParentName(),
     newLabel,
     signerAddress,
     signerAddress,
@@ -505,7 +507,7 @@ export async function issueRental(
   const signer = getSigner();
   const brainMeta = await resolveBrain(brain_ens);
   const label = `renter-${renter_address.slice(2, 10).toLowerCase()}`;
-  const expiresAt = expiryMs(DEFAULT_RENTAL_DURATION_DAYS);
+  const expiresAt = expiryMs(getRentalDurationDays());
 
   const subname = await createOrUpdateSubname(
     signer,
@@ -523,7 +525,7 @@ export async function issueRental(
         : []),
       ["com.0mcp.access.status", "active"],
     ],
-    DEFAULT_RENTAL_DURATION_DAYS
+    getRentalDurationDays()
   );
 
   console.error(`[ens] ✅ Rental issued: ${subname} → ${renter_address} until ${new Date(expiresAt).toISOString()}`);
