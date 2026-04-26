@@ -274,6 +274,7 @@ async function cmdInit(): Promise<void> {
   const registry   = "0x1aa3A642Ee0fE818471B0B3e75157cbbaA8C75CD";
   const inftAddr   = "0xd07059e54017BbF424223cb089ffBC5e2558cF56";
   const paymaster  = "0xb1Ab695dbcbA334A60712234d46264A617AD6d7f";
+  const ensRegistrar = "0xA2C96740159b7a47541DEfF991aD5edfa671661d";
 
   const keeperKey = await prompt("KeeperHub API key (optional — get at https://app.keeperhub.com)", "");
   const brainName = await prompt("Your Brain name (e.g. 'sampy' — will become sampy.0mcp.eth, or leave blank)", "");
@@ -310,6 +311,7 @@ ENS_REGISTRY_ADDRESS=0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e
 ENS_RESOLVER_ADDRESS=0xE99638b40E4Fff0129D56f03b55b6bbC4BBE49b5
 ENS_NAME_WRAPPER_ADDRESS=0x0635513f179D50A207757E05759CbD106d7dFcE8
 ENS_REVERSE_REGISTRAR_ADDRESS=0x4F382928805ba0e23B30cFB75fC9E848e82DFD47
+SUBNAME_REGISTRAR_ADDRESS=${ensRegistrar}
 RENTAL_DURATION_DAYS=30
 
 # ── KeeperHub ─────────────────────────────────────────────────────────────────
@@ -359,6 +361,7 @@ RENTER_SUBNAME=
       process.env.ENS_PRIVATE_KEY         = privateKey;
       process.env.SEPOLIA_RPC_URL         = sepoliaRpc;
       process.env.PAYMASTER_ADDRESS       = paymaster;
+      process.env.SUBNAME_REGISTRAR_ADDRESS = ensRegistrar;
       process.env.MEMORY_REGISTRY_ADDRESS = registry;
       process.env.ZG_RPC_URL              = zgRpc;
       process.env.INFT_CONTRACT_ADDRESS   = inftAddr;
