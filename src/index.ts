@@ -7,7 +7,7 @@
  * Use console.error for ALL debug/info output.
  */
 
-import "./env.js";
+import { loadLocalEnv } from "./env.js";
 import fs from "node:fs";
 import path from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -56,6 +56,7 @@ server.registerTool(
   },
   async ({ project_id, prompt, max_entries }) => {
     try {
+      loadLocalEnv(undefined, project_id);
       const context = await buildContext(project_id, prompt, max_entries);
       return {
         content: [
@@ -96,6 +97,7 @@ server.registerTool(
   },
   async ({ project_id, prompt, response, file_paths, tags }) => {
     try {
+      loadLocalEnv(undefined, project_id);
       const entry = {
         project_id,
         prompt,
@@ -137,6 +139,7 @@ server.registerTool(
   },
   async ({ project_id }) => {
     try {
+      loadLocalEnv(undefined, project_id);
       const snapshot = await exportSnapshot(project_id);
       return {
         content: [{ type: "text" as const, text: JSON.stringify(snapshot, null, 2) }],
@@ -168,6 +171,7 @@ server.registerTool(
   },
   async ({ project_id, wallet, ens_name }) => {
     try {
+      loadLocalEnv(undefined, project_id);
       const snapshot = await exportSnapshot(project_id);
       const result = await mintSnapshot(snapshot, wallet);
       
@@ -248,6 +252,7 @@ server.registerTool(
   },
   async ({ project_id, name, description }) => {
     try {
+      loadLocalEnv(undefined, project_id);
       const entries = await loadAllEntries(project_id);
       const ensName = await registerAgent(project_id, name, {
         name,

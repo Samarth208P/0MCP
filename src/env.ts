@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { getProjectLocation } from "./registry.js";
 
 let loaded = false;
 
@@ -23,10 +24,24 @@ function parseLine(line: string): [string, string] | null {
   return key ? [key, value] : null;
 }
 
-export function loadLocalEnv(startDir?: string): void {
-  if (loaded) return;
+/**
+ * Loads environment variables from .env.0mcp or .env.
+ * If project_id is provided, it first checks the global registry to find the 
+ * absolute path for that project.
+ */
+export function loadLocalEnv(startDir?: string, project_id?: string): void {
+  // If we already loaded a global one, only re-run if we have a specific project_id
+  if (loaded && !project_id) return;
 
   const dirsToTry = [startDir, process.env.INIT_CWD, process.cwd()].filter(Boolean) as string[];
+  
+  if (project_id) {
+    const registeredPath = getProjectLocation(project_id);
+    if (registeredPath) {
+      dirsToTry.unshift(registeredPath);
+    }
+  }
+
   let envPath = "";
 
   const checkFile = (dir: string, filename: string) => {
@@ -51,11 +66,19 @@ export function loadLocalEnv(startDir?: string): void {
   }
 
   if (!envPath) {
-    console.error(`[0MCP] ⚠️  No .env.0mcp or .env file found (tried INIT_CWD and cwd)`);
+    // Only warn if we weren't just doing a targeted project lookup
+    if (!project_id) {
+       console.error(`[0MCP] ⚠️  No .env.0mcp or .env found. Run '0mcp init' in your project.`);
+    }
     return;
   }
 
-  console.error(`[0MCP] 📝 Loading environment from: ${envPath}`);
+  // Avoid logging the same path multiple times
+  if (process.env._0MCP_ENV_LOADED !== envPath) {
+    console.error(`[0MCP] 📝 Loading environment from: ${envPath}`);
+    process.env._0MCP_ENV_LOADED = envPath;
+  }
+  
   loaded = true;
 
   const content = fs.readFileSync(envPath, "utf8");
@@ -63,10 +86,12 @@ export function loadLocalEnv(startDir?: string): void {
     const parsed = parseLine(line);
     if (!parsed) continue;
     const [key, value] = parsed;
-    if (process.env[key] === undefined) {
+    // Don't overwrite existing process.env unless specifically needed
+    if (process.env[key] === undefined || project_id) {
       process.env[key] = value;
     }
   }
 }
 
+// Initial load on import
 loadLocalEnv();

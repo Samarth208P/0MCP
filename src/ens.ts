@@ -409,6 +409,22 @@ export async function registerAgent(
   return ensName;
 }
 
+/**
+ * Looks up the primary ENS name for an address and returns it if it ends in .0mcp.eth
+ */
+export async function lookupPrimaryBrain(address: string): Promise<string | null> {
+  try {
+    const provider = getProvider();
+    const name = await provider.lookupAddress(address);
+    if (name && name.endsWith(`.${ENS_PARENT_NAME}`)) {
+      return name;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 export async function renameAgent(
   oldName: string,
   newLabel: string
