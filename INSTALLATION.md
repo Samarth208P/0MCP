@@ -15,7 +15,7 @@ npm install -g @samarth208p/0mcp@latest
 
 The wizard will:
 - Generate (or import) an Ethereum keypair
-- Scaffold a `.env` file with all required settings pre-filled
+- Scaffold a `.env.0mcp` file with all required settings pre-filled
 - Ask for your desired **Brain name** (e.g. `sampy` → `sampy.0mcp.eth`)
 
 > **Your brain name is automatically registered to your wallet** the first time you connect your IDE — no extra steps.
@@ -31,7 +31,7 @@ Your wallet needs tokens on two networks:
 | **0G (Galileo)** | Memory storage writes | https://faucet.0g.ai |
 | **Sepolia ETH** | ENS registration gas (or use the built-in paymaster) | https://sepoliafaucet.com |
 
-> The built-in **ZeroG Paymaster** (`PAYMASTER_ADDRESS` in `.env`) can sponsor ENS gas if you have 0G tokens — so Sepolia ETH is optional.
+> The built-in **ZeroG Paymaster** (`PAYMASTER_ADDRESS` in `.env.0mcp`) can sponsor ENS gas if you have 0G tokens — so Sepolia ETH is optional.
 
 ---
 
@@ -39,13 +39,13 @@ Your wallet needs tokens on two networks:
 
 Choose your IDE and add the 0MCP server exactly as shown.
 
-### 🟢 Cursor
+### 🟢 Cursor / VS Code / Codex Extension
 
-1. **Cursor Settings** → **Features** → **MCP**
+1. Go to your IDE's MCP Settings (e.g., **Cursor Settings** → **Features** → **MCP**)
 2. Click **+ Add new MCP server**
 3. Set **Type** to `stdio`, **Name** to `0mcp`
 4. Set the **Command** to:
-   ```
+   ```bash
    npx.cmd -y @samarth208p/0mcp@latest start
    ```
    > On **Mac/Linux** use `npx`. On **Windows** you **must** use `npx.cmd`.
@@ -53,11 +53,9 @@ Choose your IDE and add the 0MCP server exactly as shown.
 
 ---
 
-### 🔵 VS Code (Cline or Roo Code)
+### 🔵 Antigravity / Cline / Roo / Continue.dev
 
-1. Open the Cline/Roo Code chat window
-2. Click the **🔌 MCP Server** icon → **Configure MCP Servers**
-3. Add the block inside `"mcpServers"`:
+For AI agents and extensions that use a JSON configuration file (such as Antigravity's `mcp_config.json`), insert the following into your `mcpServers` block:
 
 ```json
 {
@@ -65,47 +63,33 @@ Choose your IDE and add the 0MCP server exactly as shown.
     "0mcp": {
       "command": "npx.cmd",
       "args": ["-y", "@samarth208p/0mcp@latest", "start"],
-      "disabled": false,
-      "alwaysAllow": ["save_memory", "get_context", "send_funds"]
+      "disabled": false
     }
   }
 }
 ```
 
-4. Save the file — the server restarts automatically.
+> **Note:** On Mac/Linux, remember to change `"command": "npx.cmd"` to `"command": "npx"`.
+
+Save the configuration file. The server will restart automatically or when you reload your IDE.
 
 ---
 
-### 🟡 VS Code (Continue.dev)
+## Step 4: Configure the AI System Prompt (Project Rules)
 
-1. Open Continue → click **⚙️** → `config.json`
-2. Add to the `mcpServers` array:
+To ensure the AI autonomously uses the memory layer, you must add the **0MCP Agent Instructions** to your IDE's project rules or system prompt.
 
-```json
-{
-  "name": "0mcp",
-  "command": "npx.cmd",
-  "args": ["-y", "@samarth208p/0mcp@latest", "start"]
-}
-```
+### 🟣 Antigravity
+1. Open the **Antigravity** interface in your project.
+2. Look for the **Rules** or **Context** section (or click the `+` icon in the rules view).
+3. Paste the following block into your **Project Rules**:
 
-3. Restart VS Code entirely to load the tools.
+### 🟢 Cursor / VS Code
+Create a file called **`.cursorrules`** (Cursor) or **`.vscode/instructions.md`** (VS Code) in your project root with this content:
 
 ---
 
-### 🌊 Windsurf
-
-1. Open **Windsurf Settings** → **MCP**
-2. Click **Add Server**
-3. Set **Transport** to `stdio`
-4. Set **Command** to `npx.cmd -y @samarth208p/0mcp@latest start`
-5. Save and reload.
-
----
-
-## Step 4: Configure the AI System Prompt
-
-Create a file called **`.cursorrules`** (Cursor) or **`.vscode/instructions.md`** (VS Code/Cline) in your project root with this content:
+### 📋 0MCP Agent Instructions (Copy & Paste)
 
 ```markdown
 # 0MCP Agent Instructions
@@ -142,14 +126,45 @@ Open your AI chat and test these prompts:
 
 ## CLI Reference
 
-```bash
-0mcp init           # Setup wizard (run once)
-0mcp health         # Check 0G + ENS connectivity
-0mcp wallet status  # Balances, brain identity, paymaster status
-0mcp memory list <project>   # List saved memory entries
-0mcp brain mint <project>    # Mint Brain iNFT to the blockchain
-0mcp ens resolve <name>      # Resolve brain ENS metadata
-0mcp --help                  # Full command reference
+```text
+0mcp <command> [subcommand] [options]
+0mcp start                       Launch the MCP server (for use in IDEs)
+
+SETUP
+  init                             Interactive setup wizard — generates keys + scaffolds .env.0mcp
+  health                           Check 0G RPC, indexer, registry, ENS Sepolia
+
+WALLET & FUNDS
+  wallet status [--json]           Show balances, brain identity, paymaster status
+  wallet send <asset> <addr> <amt> Send 0G or ETH to another address (asset: 0g or eth)
+  wallet projects [--json]         List all known projects in storage
+  keygen [--save]                  Generate Ethereum keypair (safe offline)
+
+MEMORY
+  memory list <project> [--json]   List all saved memory entries
+  memory export <project>          Export full snapshot JSON to stdout or file
+
+BRAIN
+  brain mint <project>             Mint Brain iNFT + register ENS in one step
+  brain load <ens-name> --into     Load external Brain into local project
+  brain share <project> [--json]   Show ENS name + token ID
+  brain status <project> [--json]  Show token, contract, entry count
+
+ENS
+  ens register <project> <label>   Register <label>.0mcp.eth subname
+  ens rename <old> <new-label>     Rename an existing Brain ENS name
+  ens resolve <ens-name> [--json]  Resolve ENS → metadata JSON
+  ens issue <brain> <renter>       Issue a rental subname
+  ens verify <subname> [--json]    Verify rental access
+
+INFT
+  inft status <contract> <tokenId> Check tokenURI on 0G testnet
+
+FLAGS
+  --json     Output raw JSON (all read commands)
+  --save     Persist generated keys to .env.0mcp
+  --file     Write output to file instead of stdout
+  --help     Show this help screen
 ```
 
 ---
@@ -167,9 +182,9 @@ Open your AI chat and test these prompts:
 
 ### Brain name already taken
 - The server detects this automatically and loads it as an **imported** brain
-- To register your own, change `BRAIN_ENS_LABEL` in `.env` to a different name, then delete `BRAIN_ENS_REGISTERED=`
+- To register your own, change `BRAIN_ENS_LABEL` in `.env.0mcp` to a different name, then delete `BRAIN_ENS_REGISTERED=`
 
 ### Memory not persisting
 - Run `0mcp health` to check 0G indexer connectivity
-- Confirm `ZG_PRIVATE_KEY` and `MEMORY_REGISTRY_ADDRESS` are set in `.env`
+- Confirm `ZG_PRIVATE_KEY` and `MEMORY_REGISTRY_ADDRESS` are set in `.env.0mcp`
 - Check that your wallet has 0G tokens (needed for storage writes): https://faucet.0g.ai

@@ -62,38 +62,43 @@ export async function execOnchain(
   };
 
   console.error(`[keeper] Sending tx via KeeperHub → ${target}`);
-  console.error(`[keeper] Calldata: ${calldata.slice(0, 20)}… (${calldata.length} chars)`);
+  console.error(`[keeper] Calldata: ${calldata.slice(0, 24)}… (${calldata.length} chars)`);
 
-  const response = await fetch(KEEPER_ENDPOINT, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${KEEPER_API_KEY}`,
-    },
-    body: JSON.stringify(payload),
-  });
+  try {
+    const response = await fetch(KEEPER_ENDPOINT, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${KEEPER_API_KEY}`,
+      },
+      body: JSON.stringify(payload),
+    });
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`KeeperHub HTTP error ${response.status}: ${errorText.slice(0, 200)}`);
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`KeeperHub HTTP error ${response.status}: ${errorText.slice(0, 200)}`);
+    }
+
+    const json = (await response.json()) as {
+      result?: { txHash: string; gasUsed: string };
+      error?: { message: string };
+    };
+
+    if (json.error) {
+      throw new Error(`KeeperHub error: ${json.error.message}`);
+    }
+    if (!json.result) {
+      throw new Error("KeeperHub returned no result");
+    }
+
+    console.error(
+      `[keeper] ✓ TX executed | hash: ${json.result.txHash} | gas: ${json.result.gasUsed}`
+    );
+    return json.result;
+  } catch (e) {
+    console.error(`[keeper] Execution failed: ${e}`);
+    throw e;
   }
-
-  const json = (await response.json()) as {
-    result?: { txHash: string; gasUsed: string };
-    error?: { message: string };
-  };
-
-  if (json.error) {
-    throw new Error(`KeeperHub error: ${json.error.message}`);
-  }
-  if (!json.result) {
-    throw new Error("KeeperHub returned no result");
-  }
-
-  console.error(
-    `[keeper] ✓ TX executed | hash: ${json.result.txHash} | gas: ${json.result.gasUsed}`
-  );
-  return json.result;
 }
 
 // ── UNISWAP V4 — BRAIN RENTAL PAYMENT SWAP ────────────────────────────────────

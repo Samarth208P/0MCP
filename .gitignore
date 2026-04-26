@@ -7,7 +7,7 @@ build/
 dist/
 
 # Environment — NEVER commit this
-.env
+.env.0mcp
 
 # TypeScript cache
 *.tsbuildinfo

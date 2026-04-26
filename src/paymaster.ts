@@ -36,10 +36,10 @@ const PAYMASTER_RELAY_URL   = process.env.PAYMASTER_RELAY_URL ?? "https://relay.
 const PAYMASTER_BUNDLER_URL = process.env.PAYMASTER_BUNDLER_URL
   ?? "https://api.pimlico.io/v2/sepolia/rpc?apikey=public";
 const RELAY_SIGNER_ADDRESS  = process.env.RELAY_SIGNER_ADDRESS ?? "";
-const MIN_OG_BALANCE_ETH    = process.env.MIN_OG_BALANCE_ETH ?? "0.01";
 
-// ERC-4337 EntryPoint on Sepolia (canonical v0.7)
-const ENTRY_POINT = "0x0000000071727De22E5E9d8BAf0edAc6f37da032";
+// ERC-4337 EntryPoint on Sepolia (v0.6)
+const ENTRY_POINT = "0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789";
+const SIMPLE_ACCOUNT_FACTORY = "0x9406Cc6185a346906296840746125a0E44976454";
 
 // Minimal ABI for a Simple Account (ERC-4337 smart wallet)
 const SIMPLE_ACCOUNT_ABI = [
@@ -47,11 +47,17 @@ const SIMPLE_ACCOUNT_ABI = [
   "function getNonce() external view returns (uint256)",
 ];
 
+const FACTORY_ABI = [
+  "function getAddress(address owner, uint256 salt) view returns (address)",
+  "function createAccount(address owner, uint256 salt) external returns (address)",
+];
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export interface UserOperation {
   sender:               string;
   nonce:                string;
+  initCode:             string;
   callData:             string;
   callGasLimit:         string;
   verificationGasLimit: string;
@@ -69,25 +75,6 @@ export interface SponsoredTxResult {
 }
 
 // ── Core helpers ──────────────────────────────────────────────────────────────
-
-/**
- * Checks if the user's 0G balance meets the minimum required.
- * We use 0G balance as a Sybil-resistance signal — ensures only real users
- * can get gas sponsorship.
- *
- * @param address  User's wallet address (same key on 0G and Sepolia)
- * @returns true if balance >= MIN_OG_BALANCE_ETH
- */
-export async function has0GBalance(address: string): Promise<boolean> {
-  try {
-    const provider = new ethers.JsonRpcProvider(ZG_RPC_URL, ZG_CHAIN_ID);
-    const balance  = await provider.getBalance(address);
-    const required = ethers.parseEther(MIN_OG_BALANCE_ETH);
-    return balance >= required;
-  } catch {
-    return false;
-  }
-}
 
 /**
  * Checks if an address has enough Sepolia ETH to self-fund ENS operations.
@@ -111,18 +98,14 @@ export async function hasSepoliaBalance(address: string): Promise<boolean> {
  * Determines whether the paymaster should be used for a given address.
  * Returns true if:
  *   - PAYMASTER_ADDRESS is configured
- *   - User has 0G balance (Sybil check)
  *   - User does NOT have enough Sepolia ETH
  *
  * Exports a simple decision function — ens.ts calls this before every write.
  */
 export async function shouldUsePaymaster(address: string): Promise<boolean> {
   if (!PAYMASTER_ADDRESS) return false;
-  const [hasOG, hasSep] = await Promise.all([
-    has0GBalance(address),
-    hasSepoliaBalance(address),
-  ]);
-  return hasOG && !hasSep;
+  const hasSep = await hasSepoliaBalance(address);
+  return !hasSep;
 }
 
 // ── Relay request ─────────────────────────────────────────────────────────────
@@ -186,8 +169,16 @@ export async function submitSponsoredENSTx(
   // 1. Get 0G balance for relay verification
   const zgBalance = ethers.formatEther(await zgProvider.getBalance(userAddress));
 
-  // 2. Build the call that the smart account will make
-  //    (Simple Account: execute(dest, value, data))
+  // 2. Compute the Smart Wallet Address (Sender) & InitCode
+  const factory = new ethers.Contract(SIMPLE_ACCOUNT_FACTORY, FACTORY_ABI, sepProvider);
+  const senderAddress = String(await (factory.getFunction("getAddress") as any)(userAddress, 0));
+
+  const code = await sepProvider.getCode(senderAddress);
+  const initCode = code === "0x"
+    ? ethers.concat([SIMPLE_ACCOUNT_FACTORY, factory.interface.encodeFunctionData("createAccount", [userAddress, 0])])
+    : "0x";
+
+  // 3. Build the call that the smart account will make
   const accountIface = new ethers.Interface(SIMPLE_ACCOUNT_ABI);
   const execCalldata = accountIface.encodeFunctionData("execute", [
     targetContract,
@@ -195,12 +186,12 @@ export async function submitSponsoredENSTx(
     calldata,
   ]);
 
-  // 3. Estimate gas (bundler eth_estimateUserOperationGas)
+  // 4. Estimate gas (bundler eth_estimateUserOperationGas)
   const feeData = await sepProvider.getFeeData();
   const maxFeePerGas = feeData.maxFeePerGas ?? ethers.parseUnits("30", "gwei");
   const maxPriorityFeePerGas = feeData.maxPriorityFeePerGas ?? ethers.parseUnits("2", "gwei");
 
-  // 4. Request relay co-signature (relay verifies 0G balance)
+  // 5. Request relay co-signature (relay verifies 0G balance)
   const relayResp = await requestRelaySignature({
     userAddress,
     zgBalance,
@@ -209,30 +200,31 @@ export async function submitSponsoredENSTx(
     chainId: 11155111,
   });
 
-  // 5. Build the unsigned UserOperation (nonce from bundler)
+  // 6. Build the unsigned UserOperation
   const nonce: bigint = await bundlerProvider.send("eth_getUserOperationCount", [
-    userAddress, ENTRY_POINT,
+    senderAddress, ENTRY_POINT,
   ]).catch(() => 0n);
 
   const userOp: UserOperation = {
-    sender:               userAddress,
+    sender:               senderAddress,
     nonce:                ethers.toBeHex(nonce),
+    initCode:             initCode,
     callData:             execCalldata,
-    callGasLimit:         ethers.toBeHex(300_000),
-    verificationGasLimit: ethers.toBeHex(150_000),
-    preVerificationGas:   ethers.toBeHex(50_000),
+    callGasLimit:         ethers.toBeHex(700_000),      // Subname transfers take gas
+    verificationGasLimit: ethers.toBeHex(500_000),      // Generous for initCode deployment
+    preVerificationGas:   ethers.toBeHex(100_000),
     maxFeePerGas:         ethers.toBeHex(maxFeePerGas),
     maxPriorityFeePerGas: ethers.toBeHex(maxPriorityFeePerGas),
     paymasterAndData:     relayResp.paymasterAndData,
     signature:            "0x", // filled below
   };
 
-  // 6. Sign the UserOperation with the user's key
+  // 7. Sign the UserOperation with the user's key
   const userOpHash = computeUserOpHash(userOp);
   const signature = await signer.signMessage(ethers.getBytes(userOpHash));
   userOp.signature = signature;
 
-  // 7. Submit to bundler
+  // 8. Submit to bundler (Using v0.6 format)
   const submittedHash: string = await bundlerProvider.send(
     "eth_sendUserOperation",
     [userOp, ENTRY_POINT],
@@ -248,32 +240,29 @@ export async function submitSponsoredENSTx(
 // ── UserOp hash helper ────────────────────────────────────────────────────────
 
 /**
- * Computes the ERC-4337 UserOperation hash (v0.7 packed format).
+ * Computes the ERC-4337 UserOperation hash (v0.6 ABI encoded format).
  * This is what the user signs, and what the paymaster verifies.
  */
 function computeUserOpHash(op: UserOperation): string {
-  const packed = ethers.solidityPackedKeccak256(
+  const packed = ethers.AbiCoder.defaultAbiCoder().encode(
     ["address", "uint256", "bytes32", "bytes32",
-     "bytes32", "uint256", "bytes32"],
+     "uint256", "uint256", "uint256", "uint256", "uint256", "bytes32"],
     [
       op.sender,
       op.nonce,
+      ethers.keccak256(op.initCode),
       ethers.keccak256(op.callData),
-      ethers.keccak256(op.paymasterAndData),
-      ethers.solidityPackedKeccak256(
-        ["uint128", "uint128"],
-        [op.callGasLimit, op.verificationGasLimit],
-      ),
+      op.callGasLimit,
+      op.verificationGasLimit,
+      op.preVerificationGas,
       op.maxFeePerGas,
-      ethers.solidityPackedKeccak256(
-        ["uint128", "uint128"],
-        [op.maxFeePerGas, op.maxPriorityFeePerGas],
-      ),
-    ],
+      op.maxPriorityFeePerGas,
+      ethers.keccak256(op.paymasterAndData),
+    ]
   );
   return ethers.solidityPackedKeccak256(
     ["bytes32", "address", "uint256"],
-    [packed, ENTRY_POINT, 11155111],
+    [ethers.keccak256(packed), ENTRY_POINT, 11155111]
   );
 }
 
@@ -285,7 +274,6 @@ export interface PaymasterStatus {
   bundlerUrl:        string;
   configured:        boolean;
   relaySigner:       string;
-  minOgBalanceEther: string;
 }
 
 /**
@@ -298,6 +286,5 @@ export function getPaymasterStatus(): PaymasterStatus {
     bundlerUrl:        PAYMASTER_BUNDLER_URL,
     configured:        !!PAYMASTER_ADDRESS,
     relaySigner:       RELAY_SIGNER_ADDRESS || "(not set)",
-    minOgBalanceEther: MIN_OG_BALANCE_ETH,
   };
 }

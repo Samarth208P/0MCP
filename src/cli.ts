@@ -144,7 +144,7 @@ function printHelp(): void {
   out("");
   out(c.bold("  WALLET & FUNDS"));
   row("wallet status [--json]",                     "Show balances, brain identity, paymaster status");
-  row("wallet send <recipient> <amount>",           "Send 0G tokens to another address");
+  row("wallet send <asset> <recipient> <amount>",   "Send 0G or ETH to another address (asset: 0g or eth)");
   row("wallet projects [--json]",                   "List all known projects in storage");
   row("keygen [--save]",                            "Generate Ethereum keypair (safe offline)");
   out("");
@@ -200,7 +200,7 @@ async function cmdKeygen(flags: Record<string, string | true>): Promise<void> {
   out(`    ${c.dim(mnemonic)}`);
   nl();
   warn("NEVER share your private key. Store mnemonic offline (paper/hardware wallet).");
-  warn("Add to .env as ZG_PRIVATE_KEY and ENS_PRIVATE_KEY.");
+  warn("Add to .env.0mcp as ZG_PRIVATE_KEY and ENS_PRIVATE_KEY.");
   nl();
   info("Get testnet tokens:");
   bull("0G Galileo OG tokens  → https://faucet.0g.ai");
@@ -208,9 +208,9 @@ async function cmdKeygen(flags: Record<string, string | true>): Promise<void> {
   nl();
 
   if (hasFlag(flags, "save")) {
-    const envPath = path.resolve(process.cwd(), ".env");
+    const envPath = path.resolve(process.cwd(), ".env.0mcp");
     if (!fs.existsSync(envPath)) {
-      err(".env file not found — run `0mcp init` first");
+      err(".env.0mcp file not found — run `0mcp init` first");
       return;
     }
     let content = fs.readFileSync(envPath, "utf8");
@@ -226,7 +226,7 @@ async function cmdKeygen(flags: Record<string, string | true>): Promise<void> {
     replaceOrAppend("ENS_PRIVATE_KEY", privateKey);
     replaceOrAppend("MY_WALLET_ADDRESS", address);
     fs.writeFileSync(envPath, content);
-    ok("Keys saved to .env (ZG_PRIVATE_KEY, ENS_PRIVATE_KEY, MY_WALLET_ADDRESS)");
+    ok("Keys saved to .env.0mcp (ZG_PRIVATE_KEY, ENS_PRIVATE_KEY, MY_WALLET_ADDRESS)");
   }
 }
 
@@ -234,7 +234,7 @@ async function cmdKeygen(flags: Record<string, string | true>): Promise<void> {
 
 async function cmdInit(): Promise<void> {
   header("0MCP INIT — SETUP WIZARD");
-  info("This wizard generates your keys and scaffolds a .env file.");
+  info("This wizard generates your keys and scaffolds a .env.0mcp file.");
   nl();
 
   const genNew = await prompt("Generate a new keypair now?", "yes");
@@ -338,25 +338,43 @@ RENTER_ADDRESS=
 RENTER_SUBNAME=
 `;
 
-  const envPath = path.resolve(process.cwd(), ".env");
+  const envPath = path.resolve(process.cwd(), ".env.0mcp");
   if (fs.existsSync(envPath)) {
-    const overwrite = await prompt(".env already exists. Overwrite?", "no");
+    const overwrite = await prompt(".env.0mcp already exists. Overwrite?", "no");
     if (!overwrite.toLowerCase().startsWith("y")) {
-      warn("Aborted. .env not changed.");
+      warn("Aborted. .env.0mcp not changed.");
       return;
     }
   }
 
   fs.writeFileSync(envPath, envContent);
-  ok(".env written successfully (0MCP is ready).");
+  ok(".env.0mcp written successfully (0MCP is ready).");
 
   if (brainLabel) {
     nl();
     ok(`Brain name reserved: ${c.bold(`${brainLabel}.0mcp.eth`)}`);
-    info(`0MCP will automatically register ${c.cyan(`${brainLabel}.0mcp.eth`)} to your wallet`);
-    info(`the first time you start the MCP server (${c.cyan("0mcp start")}).`);
-    info(`Make sure your wallet has Sepolia ETH, or the paymaster`);
-    info(`at ${c.cyan(paymaster)} will sponsor the gas for you.`);
+    info(`Before registering, ensure your wallet has Sepolia ETH or 0G tokens.`);
+    const doReg = await prompt(`Attempt to register ${brainLabel}.0mcp.eth on ENS now?`, "yes");
+    if (doReg.toLowerCase().startsWith("y")) {
+      // Inject environment variables immediately so cmdEnsRegister finds them
+      process.env.ZG_PRIVATE_KEY = privateKey;
+      process.env.ENS_PRIVATE_KEY = privateKey;
+      process.env.SEPOLIA_RPC_URL = sepoliaRpc;
+      process.env.PAYMASTER_ADDRESS = paymaster;
+      try {
+        await cmdEnsRegister(brainLabel, brainLabel);
+        // Persist completion state
+        let updatedContent = fs.readFileSync(envPath, "utf8");
+        updatedContent = updatedContent.replace("BRAIN_ENS_REGISTERED=", "BRAIN_ENS_REGISTERED=true");
+        updatedContent = updatedContent.replace("BRAIN_ENS_MODE=", "BRAIN_ENS_MODE=own");
+        fs.writeFileSync(envPath, updatedContent);
+      } catch (err) {
+        warn(`Registration failed: ${err}`);
+        info(`Fund your wallet and run manually: 0mcp ens register ${brainLabel} ${brainLabel}`);
+      }
+    } else {
+      info(`You can register your brain identity manually later: 0mcp ens register ${brainLabel} ${brainLabel}`);
+    }
   }
 
   nl();
@@ -422,9 +440,9 @@ async function cmdHealth(): Promise<void> {
     err(`Sepolia/ENS check failed: ${e}`);
   }
 
-  // .env presence
+  // .env.0mcp presence
   nl();
-  info("Checking .env configuration…");
+  info("Checking .env.0mcp configuration…");
   const required: Array<[string, string]> = [
     ["ZG_PRIVATE_KEY",          "0G transactions"],
     ["MEMORY_REGISTRY_ADDRESS", "on-chain memory registry"],
@@ -1029,33 +1047,49 @@ async function cmdWalletStatus(flags: Record<string, string | true>): Promise<vo
   bull("Run `0mcp ens resolve <name>` to check your agent identity.");
   if (brainMode === "loaded") {
     bull(c.magenta(`Imported brain ${brainName} — you can use \`load_brain\` MCP tool to inject its context.`));
-    bull(c.dim("To register your own brain, change BRAIN_ENS_LABEL in .env and delete BRAIN_ENS_REGISTERED."));
+    bull(c.dim("To register your own brain, change BRAIN_ENS_LABEL in .env.0mcp and delete BRAIN_ENS_REGISTERED."));
   }
   if (!pmStatus.configured && Number(ethers.formatEther(sepBal)) < 0.005) {
-    bull(c.yellow("Set PAYMASTER_ADDRESS in .env to enable gas-free ENS ops using 0G tokens."));
+    bull(c.yellow("Set PAYMASTER_ADDRESS in .env.0mcp to enable gas-free ENS ops using 0G tokens."));
   }
   nl();
 }
 
 // ── COMMAND: wallet send ──────────────────────────────────────────────────────
 
-async function cmdWalletSend(recipient: string, amount: string): Promise<void> {
-  if (!recipient || !amount) {
-    err("Usage: 0mcp wallet send <recipient> <amount>");
+async function cmdWalletSend(asset: string, recipient: string, amount: string): Promise<void> {
+  const assetLow = asset.toLowerCase();
+  if (!asset || !recipient || !amount || (assetLow !== "0g" && assetLow !== "eth")) {
+    err("Usage: 0mcp wallet send [0g|eth] <recipient> <amount>");
     process.exit(1);
   }
 
-  const zgRpc = process.env.ZG_RPC_URL ?? "https://evmrpc-testnet.0g.ai";
-  const pk = process.env.ZG_PRIVATE_KEY;
+  let rpcUrl = "";
+  let pk = "";
+  let symbol = "";
+  let networkName = "";
+
+  if (assetLow === "0g") {
+    rpcUrl = process.env.ZG_RPC_URL ?? "https://evmrpc-testnet.0g.ai";
+    pk = process.env.ZG_PRIVATE_KEY ?? "";
+    symbol = "0G";
+    networkName = "0G Galileo";
+  } else if (assetLow === "eth") {
+    rpcUrl = process.env.SEPOLIA_RPC_URL ?? "https://rpc.sepolia.org";
+    pk = process.env.ENS_PRIVATE_KEY ?? process.env.ZG_PRIVATE_KEY ?? "";
+    symbol = "ETH";
+    networkName = "Sepolia";
+  }
+
   if (!pk) {
-    err("ZG_PRIVATE_KEY not found in .env");
+    err(`Private key not found in .env for ${symbol}`);
     process.exit(1);
   }
 
-  const zgProvider = new ethers.JsonRpcProvider(zgRpc);
-  const wallet = new ethers.Wallet(pk, zgProvider);
+  const provider = new ethers.JsonRpcProvider(rpcUrl);
+  const wallet = new ethers.Wallet(pk, provider);
 
-  info(`Sending ${amount} 0G to ${recipient} on 0G Galileo...`);
+  info(`Sending ${amount} ${symbol} to ${recipient} on ${networkName}...`);
   try {
     const tx = await wallet.sendTransaction({
       to: recipient,
@@ -1064,7 +1098,7 @@ async function cmdWalletSend(recipient: string, amount: string): Promise<void> {
     out(`    TX Hash: ${c.cyan(tx.hash)}`);
     info("Waiting for confirmation...");
     await tx.wait();
-    ok(`Transaction confirmed! Successfully sent ${c.green(amount)} $OG.`);
+    ok(`Transaction confirmed! Successfully sent ${c.green(amount)} $${symbol}.`);
   } catch (e) {
     err(`Send failed: ${e instanceof Error ? e.message : String(e)}`);
     process.exit(1);
@@ -1101,7 +1135,7 @@ async function main(): Promise<void> {
       await cmdWalletStatus(flags);
       
     } else if (command === "wallet" && sub1 === "send") {
-      await cmdWalletSend(sub2 || parsed.positional[2] || "", parsed.positional[3] || "");
+      await cmdWalletSend(sub2 || parsed.positional[2] || "", parsed.positional[3] || "", parsed.positional[4] || "");
 
     } else if (command === "wallet" && sub1 === "projects") {
       // Stub: in a real implementation this would query the on-chain registry

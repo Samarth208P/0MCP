@@ -21,12 +21,12 @@ The wizard generates your keypair, scaffolds `.env`, and reserves your Brain ENS
 - **Sepolia ETH** → https://sepoliafaucet.com  *(for ENS gas — or the built-in paymaster covers this)*
 
 ### 3. Connect your IDE
-Add 0MCP to **Cursor**, **VS Code**, or **Windsurf** via MCP settings:
+Add 0MCP to **Antigravity**, **Cursor**, **VS Code**, or **Codex Extension** via MCP settings:
 
 | IDE | Command |
 |---|---|
-| Cursor / Windsurf | `npx.cmd -y @samarth208p/0mcp@latest start` *(Windows)* |
-| Cursor / Windsurf | `npx -y @samarth208p/0mcp@latest start` *(Mac/Linux)* |
+| Cursor / Codex Extension | `npx.cmd -y @samarth208p/0mcp@latest start` *(Windows)* |
+| Cursor / Codex Extension | `npx -y @samarth208p/0mcp@latest start` *(Mac/Linux)* |
 
 > See [INSTALLATION.md](./INSTALLATION.md) for step-by-step screenshots for every IDE.
 
@@ -51,7 +51,7 @@ node build/src/cli.js init
 
 * **🧠 Persistent Context (0G Storage):** No more "Goldfish memory." Your agent remembers past architectural decisions and bug fixes. Memory is stored reliably on 0G's decentralized data availability layer.
 * **🔐 AES-256-GCM Encryption:** Absolute privacy. All context payloads are encrypted locally using AES-GCM derived from your private key before being sent to 0G. Only you can decrypt your agent's memory.
-* **🧩 IDE Native (MCP):** Zero changes to your workflow. Works out-of-the-box with Cursor, VS Code, and Windsurf via the Model Context Protocol.
+* **🧩 IDE Native (MCP):** Zero changes to your workflow. Works out-of-the-box with Antigravity, Cursor, VS Code, and Codex Extension via the Model Context Protocol.
 * **💎 Brain iNFTs (ERC-7857):** Accumulate your agent's context over a project and mint it as an intelligent NFT. Share, rent, or sell your agent's domain expertise to others.
 * **🌐 ENS Identity Layer:** Brains aren't just hashes; they are discoverable via ENS (e.g., `sampy.0mcp.eth`). Rental access is granted via ENS subnames (`renter.sampy.0mcp.eth`). Brain names are registered **automatically** on first server start.
 * **🤖 Smart Brain Detection:** Already have a brain? The server detects it and adopts it. Pointed to someone else's brain? It loads it as an imported context source — no manual steps.
@@ -75,7 +75,7 @@ node build/src/cli.js init
 
 ## 📖 The Core Loop
 
-1. **Prompt:** You type a prompt in Cursor / VS Code / Windsurf.
+1. **Prompt:** You type a prompt in Antigravity / Cursor / VS Code / Codex Extension.
 2. **Retrieve:** 0MCP intercepts it, querying 0G for relevant project history.
 3. **Decrypt & Inject:** Context is decrypted locally and injected into the LLM's system prompt.
 4. **Respond:** Your AI model responds — now with full project memory.

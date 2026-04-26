@@ -104,9 +104,12 @@ server.registerTool(
         tags: tags ?? [],
         timestamp: Date.now(),
       };
-      await saveMemory(project_id, entry);
+      const result = await saveMemory(project_id, entry);
       return {
-        content: [{ type: "text" as const, text: `✓ Memory saved for project: ${project_id}` }],
+        content: [{
+          type: "text" as const,
+          text: `✓ Memory saved for project: ${project_id}\n0G Storage TX: ${result.txHash}\nIndexer: ${result.endpoint}`,
+        }],
       };
     } catch (err) {
       console.error(`[0MCP] save_memory error: ${err}`);
@@ -454,25 +457,42 @@ server.registerTool(
   "send_funds",
   {
     description:
-      "Transfer native 0G tokens on the 0G Galileo Testnet. " +
-      "Use this ONLY when the user explicitly asks you to send or transfer funds to a specific address. " +
-      "Amount must be in standard decimal format (e.g. '0.09' or '1.5').",
+      "Transfer tokens on 0G Galileo Testnet or Sepolia Testnet. " +
+      "Use this ONLY when the user explicitly asks you to send or transfer funds. " +
+      "Amount must be in standard decimal format (e.g. '0.01'). " +
+      "Asset must be '0g' or 'eth'.",
     inputSchema: z.object({
+      asset: z.enum(["0g", "eth"]).describe("The asset to send (0g or eth)"),
       recipient: z.string().describe("The 0x address of the recipient"),
-      amount: z.string().describe("The amount in native tokens (e.g., '0.09')"),
+      amount: z.string().describe("The amount in tokens (e.g., '0.01')"),
     }),
     annotations: { readOnlyHint: false },
   },
-  async ({ recipient, amount }) => {
+  async ({ asset, recipient, amount }) => {
     try {
-      const zgRpc = process.env.ZG_RPC_URL ?? "https://evmrpc-testnet.0g.ai";
-      const pk = process.env.ZG_PRIVATE_KEY;
-      if (!pk) throw new Error("ZG_PRIVATE_KEY lacking in .env");
+      let rpcUrl = "";
+      let pk = "";
+      let symbol = "";
+      let network = "";
 
-      const zgProvider = new ethers.JsonRpcProvider(zgRpc);
-      const wallet = new ethers.Wallet(pk, zgProvider);
+      if (asset === "0g") {
+        rpcUrl = process.env.ZG_RPC_URL ?? "https://evmrpc-testnet.0g.ai";
+        pk = process.env.ZG_PRIVATE_KEY ?? "";
+        symbol = "0G";
+        network = "0G Galileo";
+      } else {
+        rpcUrl = process.env.SEPOLIA_RPC_URL ?? "https://rpc.sepolia.org";
+        pk = process.env.ENS_PRIVATE_KEY ?? process.env.ZG_PRIVATE_KEY ?? "";
+        symbol = "ETH";
+        network = "Sepolia";
+      }
 
-      console.error(`[0MCP] AI initiated transfer of ${amount} 0G to ${recipient}...`);
+      if (!pk) throw new Error(`Missing private key for ${asset} in .env`);
+
+      const provider = new ethers.JsonRpcProvider(rpcUrl);
+      const wallet = new ethers.Wallet(pk, provider);
+
+      console.error(`[0MCP] AI initiating transfer of ${amount} ${symbol} to ${recipient} on ${network}...`);
       const tx = await wallet.sendTransaction({
         to: recipient,
         value: ethers.parseEther(amount),
@@ -483,7 +503,7 @@ server.registerTool(
       return {
         content: [{
           type: "text" as const,
-          text: `✓ Successfully transferred ${amount} 0G to ${recipient}\nTX Hash: ${tx.hash}`,
+          text: `✓ Successfully transferred ${amount} ${symbol} to ${recipient} on ${network}\nTX Hash: ${tx.hash}`,
         }],
       };
     } catch (err) {
@@ -494,168 +514,7 @@ server.registerTool(
     }
   }
 );
-// ── Auto-ENS registration ─────────────────────────────────────────────────────
-
-/**
- * Normalises a raw brain name value from .env into a single ENS label.
- * Accepts: "sampy", "sampy.0mcp.eth", "  SAMPY  "
- * Returns: "sampy"
- */
-function parseBrainLabel(raw: string): string {
-  const clean = raw.trim().toLowerCase();
-  // Strip parent suffix if user typed the full name
-  const suffix = `.${process.env.ENS_PARENT_NAME ?? "0mcp.eth"}`;
-  if (clean.endsWith(suffix)) return clean.slice(0, -suffix.length);
-  return clean;
-}
-
-/**
- * Writes or updates a key=value pair in the local .env file.
- * Safe to call at runtime — only touches the target key.
- */
-function writeEnvKey(key: string, value: string): void {
-  try {
-    const envPath = path.resolve(process.cwd(), ".env");
-    if (!fs.existsSync(envPath)) return;
-    let content = fs.readFileSync(envPath, "utf8");
-    const re = new RegExp(`^${key}=.*$`, "m");
-    if (re.test(content)) {
-      content = content.replace(re, `${key}=${value}`);
-    } else {
-      content += `\n${key}=${value}\n`;
-    }
-    fs.writeFileSync(envPath, content, "utf8");
-  } catch (e) {
-    console.error(`[0MCP] Could not write ${key} to .env: ${e}`);
-  }
-}
-
-/**
- * Smart brain ENS resolver — runs once on every server start until settled.
- *
- * Scenarios handled automatically:
- *
- *  A) name is FREE
- *     → register `label.0mcp.eth` to the user's wallet (fresh brain)
- *     → writes BRAIN_ENS_REGISTERED=true  BRAIN_ENS_MODE=own
- *
- *  B) name EXISTS and owner === user's wallet  
- *     → wallet already owns this brain (prev install / reinstall)
- *     → adopt it silently — no on-chain write needed
- *     → writes BRAIN_ENS_REGISTERED=true  BRAIN_ENS_MODE=own
- *
- *  C) name EXISTS and owner !== user's wallet
- *     → another user's brain is pointed to — treat as an imported / read-only brain
- *     → do NOT register; just record it for context injection
- *     → writes BRAIN_ENS_REGISTERED=true  BRAIN_ENS_MODE=loaded
- *
- * Controlled by .env keys:
- *   BRAIN_ENS_LABEL      — bare label set during `0mcp init`
- *   BRAIN_ENS_NAME       — full subname (e.g. sampy.0mcp.eth)
- *   BRAIN_ENS_REGISTERED — set to "true" after any path completes
- *   BRAIN_ENS_MODE       — "own" | "loaded"
- */
-async function autoRegisterBrainENS(): Promise<void> {
-  const rawLabel = process.env.BRAIN_ENS_LABEL ?? process.env.BRAIN_ENS_NAME ?? "";
-  if (!rawLabel) return; // no brain configured
-
-  const label    = parseBrainLabel(rawLabel);
-  const parent   = process.env.ENS_PARENT_NAME ?? "0mcp.eth";
-  const fullName = `${label}.${parent}`;
-
-  if (!label || label.length < 2) {
-    console.error("[0MCP] BRAIN_ENS_LABEL is too short — skipping auto-registration.");
-    return;
-  }
-
-  // Already settled in a previous session
-  if (process.env.BRAIN_ENS_REGISTERED === "true") {
-    const mode = process.env.BRAIN_ENS_MODE ?? "own";
-    console.error(`[0MCP] Brain ENS settled (${fullName}, mode=${mode}) — skipping probe.`);
-    return;
-  }
-
-  const signingKey = process.env.ENS_PRIVATE_KEY ?? process.env.ZG_PRIVATE_KEY ?? "";
-  const ownerAddress = signingKey
-    ? (() => {
-        try { return new ethers.Wallet(signingKey).address; } catch { return ""; }
-      })()
-    : "";
-
-  console.error(`[0MCP] 🔍 Probing brain ENS: ${fullName} …`);
-
-  // ── Probe the name ─────────────────────────────────────────────────────────
-  const probe = await probeBrainENS(fullName);
-
-  // ── PATH A: name is free → register fresh ──────────────────────────────────
-  if (!probe.exists) {
-    if (!signingKey) {
-      console.error("[0MCP] Cannot register ENS: no signing key (ENS_PRIVATE_KEY/ZG_PRIVATE_KEY) found.");
-      return;
-    }
-    console.error(`[0MCP] 🔑 Name is free — registering ${fullName} → ${ownerAddress} …`);
-    try {
-      const ensName = await registerAgent(label, label, {
-        name: label,
-        description: process.env.AGENT_DESCRIPTION ?? "0MCP Brain agent",
-        project_id: label,
-        sessions: 0,
-      });
-      console.error(`[0MCP] ✅ Brain ENS registered: ${ensName} → ${ownerAddress}`);
-      process.env.BRAIN_ENS_REGISTERED = "true";
-      process.env.BRAIN_ENS_MODE       = "own";
-      writeEnvKey("BRAIN_ENS_REGISTERED", "true");
-      writeEnvKey("BRAIN_ENS_MODE",       "own");
-      writeEnvKey("BRAIN_ENS_NAME",       ensName);
-    } catch (e) {
-      console.error(`[0MCP] ⚠️  Registration failed for ${fullName}: ${e}`);
-      console.error(`[0MCP]    Retry: 0mcp ens register <project> ${label}`);
-    }
-    return;
-  }
-
-  // ── PATH B: name exists, owned by user's wallet → adopt it ─────────────────
-  if (
-    ownerAddress &&
-    probe.ownerAddress.toLowerCase() === ownerAddress.toLowerCase()
-  ) {
-    const meta = probe.metadata;
-    console.error(
-      `[0MCP] ✅ You already own ${fullName}` +
-        (meta ? ` (project="${meta.project_id}", sessions=${meta.sessions})` : "") +
-        " — adopting existing brain."
-    );
-    process.env.BRAIN_ENS_REGISTERED = "true";
-    process.env.BRAIN_ENS_MODE       = "own";
-    writeEnvKey("BRAIN_ENS_REGISTERED", "true");
-    writeEnvKey("BRAIN_ENS_MODE",       "own");
-    writeEnvKey("BRAIN_ENS_NAME",       fullName);
-    return;
-  }
-
-  // ── PATH C: name exists, owned by a DIFFERENT wallet → load as external ────
-  const meta = probe.metadata;
-  console.error(
-    `[0MCP] 📥 ${fullName} exists but is owned by ${probe.ownerAddress}`
-  );
-  if (meta) {
-    console.error(
-      `[0MCP]    External brain — project="${meta.project_id}", ` +
-        `sessions=${meta.sessions}` +
-        (meta.token_id !== undefined ? `, token=#${meta.token_id}` : "")
-    );
-  }
-  console.error(
-    `[0MCP]    Loading as imported (read-only) brain. ` +
-      `Your writes go to your own project storage; this brain is available for context load.`
-  );
-  process.env.BRAIN_ENS_REGISTERED = "true";
-  process.env.BRAIN_ENS_MODE       = "loaded";
-  writeEnvKey("BRAIN_ENS_REGISTERED", "true");
-  writeEnvKey("BRAIN_ENS_MODE",       "loaded");
-  // Keep BRAIN_ENS_NAME pointing to the external brain so load_brain can use it
-  writeEnvKey("BRAIN_ENS_NAME", fullName);
-}
+// Background ENS registration moved to `cli.ts` during initialization.
 
 
 async function main() {
@@ -664,11 +523,7 @@ async function main() {
   console.error("0MCP server running on stdio — ready for IDE connection");
   console.error(`Tools registered: get_context, save_memory, export_snapshot, mint_brain, load_brain, register_agent, resolve_brain, issue_rental, verify_access, exec_onchain, pay_brain_rental, send_funds`);
 
-  // Auto-register the user's brain ENS name if they set BRAIN_ENS_LABEL in .env
-  // Runs in the background — failure is logged but never collapses the server.
-  autoRegisterBrainENS().catch((e) =>
-    console.error(`[0MCP] autoRegisterBrainENS unhandled: ${e}`)
-  );
+  // ENS registration has been moved to `0mcp init` to avoid running on-chain commands strictly in the background.
 }
 
 main().catch(console.error);

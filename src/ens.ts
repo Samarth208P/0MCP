@@ -100,19 +100,21 @@ async function sponsoredWrite(
   contract: ethers.Contract,
   method: string,
   args: unknown[],
-): Promise<void> {
+): Promise<{ txHash: string }> {
   const address = signer.address;
   const usePaymaster = await shouldUsePaymaster(address);
 
   if (usePaymaster) {
     // Encode the calldata and route via ERC-4337 paymaster
     const calldata = contract.interface.encodeFunctionData(method, args);
-    await submitSponsoredENSTx(signer, await contract.getAddress(), calldata);
+    const result = await submitSponsoredENSTx(signer, await contract.getAddress(), calldata);
+    return { txHash: result.userOpHash };
   } else {
     // Normal direct send (user has Sepolia ETH)
     const fn = contract[method] as (...a: unknown[]) => Promise<ethers.ContractTransactionResponse>;
     const tx = await fn(...args);
     await tx.wait(1);
+    return { txHash: tx.hash };
   }
 }
 
@@ -166,22 +168,13 @@ async function writeResolverRecords(
   const resolver = new ethers.Contract(ENS_PUBLIC_RESOLVER_ADDRESS, PUBLIC_RESOLVER_ABI, signer);
 
   if (addressRecord) {
-    const tx = await (resolver.setAddr as (
-      node: string,
-      addr: string
-    ) => Promise<ethers.ContractTransactionResponse>)(node, addressRecord);
-    await tx.wait();
-    console.error(`[ens]   ✓ setAddr(${ensName}, ${addressRecord}) | TX: ${tx.hash}`);
+    const { txHash } = await sponsoredWrite(signer, resolver, "setAddr", [node, addressRecord]);
+    console.error(`[ens]   ✓ setAddr(${ensName}, ${addressRecord}) | TX: ${txHash}`);
   }
 
   for (const [key, value] of textRecords) {
-    const tx = await (resolver.setText as (
-      node: string,
-      key: string,
-      value: string
-    ) => Promise<ethers.ContractTransactionResponse>)(node, key, value);
-    await tx.wait();
-    console.error(`[ens]   ✓ setText(${ensName}, ${key}) | TX: ${tx.hash}`);
+    const { txHash } = await sponsoredWrite(signer, resolver, "setText", [node, key, value]);
+    console.error(`[ens]   ✓ setText(${ensName}, ${key}) | TX: ${txHash}`);
   }
 }
 
@@ -210,9 +203,9 @@ async function createOrUpdateSubname(
       console.error(`\n[ens] ℹ️  Using Public Subname Registrar at ${registrarAddr}`);
       const registrarAbi = ["function register(string label, address newOwner) external"];
       const registrar = new ethers.Contract(registrarAddr, registrarAbi, signer);
-      const tx = await registrar.register(normalizedLabel, signerAddress);
-      await tx.wait();
-      console.error(`[ens]   ✓ public subname created via registrar: ${childName} | TX: ${tx.hash}`);
+      
+      const { txHash } = await sponsoredWrite(signer, registrar, "register", [normalizedLabel, signerAddress]);
+      console.error(`[ens]   ✓ public subname created via registrar: ${childName} | TX: ${txHash}`);
       
       // Need to write resolver records next via ENS Public Resolver
       await writeResolverRecords(signer, childName, addressRecord, textRecords);
@@ -222,17 +215,15 @@ async function createOrUpdateSubname(
       if (finalOwner.toLowerCase() !== signerAddress.toLowerCase()) {
         try {
           if (parentState.wrapped) {
-            const transferTx = await (wrapper.safeTransferFrom as any)(
+            await sponsoredWrite(signer, wrapper, "safeTransferFrom", [
               signerAddress,
               finalOwner,
               tokenIdForName(childName),
               1n,
               "0x"
-            );
-            await transferTx.wait();
+            ]);
           } else {
-            const transferTx = await (registry.setOwner as any)(nameHash(childName), finalOwner);
-            await transferTx.wait();
+            await sponsoredWrite(signer, registry, "setOwner", [nameHash(childName), finalOwner]);
           }
           console.error(`[ens]   ✓ ownership transferred: ${childName} → ${finalOwner}`);
         } catch (e) {
@@ -251,15 +242,7 @@ async function createOrUpdateSubname(
 
   // At this point, the signer DOES naturally own the parent node.
   if (parentState.wrapped) {
-    const tx = await (wrapper.setSubnodeRecord as (
-      parentNode: string,
-      label: string,
-      owner: string,
-      resolver: string,
-      ttl: number,
-      fuses: number,
-      expiry: bigint
-    ) => Promise<ethers.ContractTransactionResponse>)(
+    const { txHash } = await sponsoredWrite(signer, wrapper, "setSubnodeRecord", [
       parentNode,
       normalizedLabel,
       signerAddress,
@@ -267,58 +250,42 @@ async function createOrUpdateSubname(
       TTL,
       0,
       expirySecondsFromNow(durationDays)
-    );
-    await tx.wait();
-    console.error(`[ens]   ✓ wrapped subname created: ${childName} | TX: ${tx.hash}`);
+    ]);
+    console.error(`[ens]   ✓ wrapped subname created: ${childName} | TX: ${txHash}`);
 
     await writeResolverRecords(signer, childName, addressRecord, textRecords);
 
     if (finalOwner.toLowerCase() !== signerAddress.toLowerCase()) {
-      const transferTx = await (wrapper.safeTransferFrom as (
-        from: string,
-        to: string,
-        id: bigint,
-        amount: bigint,
-        data: string
-      ) => Promise<ethers.ContractTransactionResponse>)(
+      const { txHash: transferHash } = await sponsoredWrite(signer, wrapper, "safeTransferFrom", [
         signerAddress,
         finalOwner,
         tokenIdForName(childName),
         1n,
         "0x"
-      );
-      await transferTx.wait();
-      console.error(`[ens]   ✓ wrapped ownership transferred: ${childName} → ${finalOwner} | TX: ${transferTx.hash}`);
+      ]);
+      console.error(`[ens]   ✓ wrapped ownership transferred: ${childName} → ${finalOwner} | TX: ${transferHash}`);
     }
 
     return childName;
   }
 
-  const tx = await (registry.setSubnodeRecord as (
-    parentNode: string,
-    label: string,
-    owner: string,
-    resolver: string,
-    ttl: number
-  ) => Promise<ethers.ContractTransactionResponse>)(
+  const { txHash } = await sponsoredWrite(signer, registry, "setSubnodeRecord", [
     parentNode,
     labelHash(normalizedLabel),
     signerAddress,
     ENS_PUBLIC_RESOLVER_ADDRESS,
     TTL
-  );
-  await tx.wait();
-  console.error(`[ens]   ✓ subname created: ${childName} | TX: ${tx.hash}`);
+  ]);
+  console.error(`[ens]   ✓ subname created: ${childName} | TX: ${txHash}`);
 
   await writeResolverRecords(signer, childName, addressRecord, textRecords);
 
   if (finalOwner.toLowerCase() !== signerAddress.toLowerCase()) {
-    const transferTx = await (registry.setOwner as (
-      node: string,
-      owner: string
-    ) => Promise<ethers.ContractTransactionResponse>)(nameHash(childName), finalOwner);
-    await transferTx.wait();
-    console.error(`[ens]   ✓ ownership transferred: ${childName} → ${finalOwner} | TX: ${transferTx.hash}`);
+    const { txHash: transferHash } = await sponsoredWrite(signer, registry, "setOwner", [
+      nameHash(childName),
+      finalOwner
+    ]);
+    console.error(`[ens]   ✓ ownership transferred: ${childName} → ${finalOwner} | TX: ${transferHash}`);
   }
 
   return childName;
@@ -331,11 +298,8 @@ async function setPrimaryName(signer: ethers.Wallet, ensName: string): Promise<v
       REVERSE_REGISTRAR_ABI,
       signer
     );
-    const tx = await (reverseRegistrar.setName as (
-      name: string
-    ) => Promise<ethers.ContractTransactionResponse>)(ensName);
-    await tx.wait();
-    console.error(`[ens]   ✓ reverse name set: ${ensName} | TX: ${tx.hash}`);
+    const { txHash } = await sponsoredWrite(signer, reverseRegistrar, "setName", [ensName]);
+    console.error(`[ens]   ✓ reverse name set: ${ensName} | TX: ${txHash}`);
   } catch (e) {
     console.error(`[ens] ⚠️  Could not set reverse name (expected in Demo Mode for off-chain CCIP names).`);
   }

@@ -317,23 +317,20 @@ export async function checkStorageHealth(): Promise<StorageHealthStatus> {
   };
 }
 
-/**
- * Saves a single memory entry for the given project to 0G Storage.
- * Loads existing entries, appends the new one, re-uploads the encrypted bundle,
- * and updates the on-chain registry root hash.
- *
- * @param project_id - Project identifier
- * @param entry      - Memory entry to append
- */
-export async function saveMemory(project_id: string, entry: MemoryEntry): Promise<void> {
+export async function saveMemory(
+  project_id: string,
+  entry: MemoryEntry
+): Promise<{ rootHash: string; txHash: string; endpoint: string }> {
   const entryKey = `entry:${entry.timestamp}`;
   const existingEntries = await loadAllEntries(project_id);
   const nextEntries = [...existingEntries, entry];
-  const { rootHash, txHash, endpoint } = await uploadProjectBundle(project_id, nextEntries);
-  await setProjectRoot(project_id, rootHash);
+  const result = await uploadProjectBundle(project_id, nextEntries);
+  await setProjectRoot(project_id, result.rootHash);
+  invalidateCache(project_id);
   console.error(
-    `[storage] Saved entry=${entryKey} | entries=${nextEntries.length} | root=${rootHash} | uploadTx=${txHash} | indexer=${endpoint}`
+    `[storage] Saved entry=${entryKey} | entries=${nextEntries.length} | root=${result.rootHash} | uploadTx=${result.txHash} | indexer=${result.endpoint}`
   );
+  return result;
 }
 
 /**
@@ -361,13 +358,33 @@ export async function getIndex(project_id: string): Promise<string[]> {
   return entries.map((entry) => `entry:${entry.timestamp}`);
 }
 
+const memoryCache = new Map<string, { entries: MemoryEntry[]; timestamp: number }>();
+const CACHE_TTL_MS = 60000; // 1 minute cache
+
 /**
  * Returns all memory entries for a project from 0G Storage.
  * Returns an empty array if no bundle exists yet.
+ * Uses a 1-minute in-memory cache to avoid redundant 0G downloads.
  *
  * @param project_id - Project identifier
  */
 export async function loadAllEntries(project_id: string): Promise<MemoryEntry[]> {
+  const cached = memoryCache.get(project_id);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
+    return cached.entries;
+  }
+
   const bundle = await downloadProjectBundle(project_id);
-  return bundle?.entries ?? [];
+  const entries = bundle?.entries ?? [];
+
+  memoryCache.set(project_id, { entries, timestamp: Date.now() });
+  return entries;
 }
+
+/**
+ * Invalidates the in-memory cache for a project.
+ */
+export function invalidateCache(project_id: string): void {
+  memoryCache.delete(project_id);
+}
+
