@@ -470,11 +470,15 @@ server.registerTool(
       asset: z.enum(["0g", "eth"]).describe("The asset to send (0g or eth)"),
       recipient: z.string().describe("The 0x address of the recipient"),
       amount: z.string().describe("The amount in tokens (e.g., '0.01')"),
+      project_id: z.string().optional().describe("Optional project ID to load keys from"),
     }),
     annotations: { readOnlyHint: false },
   },
-  async ({ asset, recipient, amount }) => {
+  async ({ asset, recipient, amount, project_id }) => {
     try {
+      if (project_id) {
+        loadLocalEnv(undefined, project_id);
+      }
       let rpcUrl = "";
       let pk = "";
       let symbol = "";

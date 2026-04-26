@@ -1,84 +1,114 @@
 <div align="center">
   <img src="https://raw.githubusercontent.com/Samarth208P/0MCP/main/0mcp.png" alt="0MCP Logo" width="200" />
   <h1>0MCP — Persistent Memory Layer for AI Coding Agents</h1>
-  <p><em>An MCP server giving your AI agent secure, persistent memory on 0G — turning expertise into a tradeable asset, discoverable via ENS.</em></p>
-  <p><strong>ETHGlobal Open Agents 2026</strong> · Solo Project · Samarth Patel, IIT Roorkee</p>
+  <p><em>0MCP anchors your AI agent's consciousness to the 0G decentralized network, turning ephemeral prompts into persistent, tradeable intelligence assets.</em></p>
+  <p>Solo Project · Samarth Patel, IIT Roorkee</p>
 </div>
 
 ---
 
-## ⚡ Quick Start (Setup in 2 Minutes)
+## The 0G Advantage: Decentralized Agent Intelligence
+0MCP is built primarily to leverage the **0G Foundation stack**. It transforms local AI coding agents into decentralized entities by treating the 0G Network as the permanent, secure, and verifiable repository of agent expertise.
 
-### 1. Install & Initialise
+- **0G Storage (KV/Log):** Every interaction is encrypted and logged to 0G, creating an immutable history of project decisions.
+- **0G Chain (ERC-7857):** Agent expertise is assetized as "Brain iNFTs," allowing intelligence to be minted, shared, and monetized on the 0G network.
+- **0G-Native Economy:** Users can operate entirely using 0G tokens, with all gas and cross-chain complexities handled by our integrated Paymaster and KeeperHub executors.
+
+---
+
+## Submission Details
+
+*   **Project Name:** 0MCP
+*   **Description:** A decentralized persistent memory layer for AI agents. 0MCP transforms stateless LLMs into long-term engineering partners by anchoring context to 0G Storage and identities to ENS.
+*   **Demo Video:** [Link to 3-min Video] (Coming Soon)
+*   **Live Demo:** [Link to Live Demo] (Coming Soon)
+*   **Team:** Samarth Patel
+    *   **Telegram:** [@samarth208p](https://t.me/samarth208p)
+    *   **X (Twitter):** [SamPy4X](https://x.com/SamPy4X)
+
+### Contract Deployment Addresses
+| Contract | Address | Network |
+|---|---|---|
+| **Memory Registry** | `0x1aa3A642Ee0fE818471B0B3e75157cbbaA8C75CD` | **0G Galileo (Testnet)** |
+| **Brain iNFT (ERC-7857)** | `0xd07059e54017BbF424223cb089ffBC5e2558cF56` | **0G Galileo (Testnet)** |
+| **ZeroG Paymaster** | `0xb1Ab695dbcbA334A60712234d46264A617AD6d7f` | **Sepolia (Ethereum)** |
+| **Subname Registrar** | `0xA2C96740159b7a47541DEfF991aD5edfa671661d` | **Sepolia (Ethereum)** |
+
+---
+
+## Quick Start (Setup in 2 Minutes)
+
+### 1. Install and Initialise
 ```bash
 npm install -g @samarth208p/0mcp@latest
 0mcp init
 ```
-The wizard generates your keypair, scaffolds `.env`, and reserves your Brain ENS name.
+The wizard generates your keypair, scaffolds .env, and reserves your 0G Brain identity.
 
-### 2. Get testnet tokens
-- **0G tokens** → https://faucet.0g.ai  *(for memory storage)*
-- **Sepolia ETH** → https://sepoliafaucet.com  *(for ENS gas — or the built-in paymaster covers this)*
-
-### 3. Connect your IDE
-Add 0MCP to **Antigravity**, **Cursor**, **VS Code**, or **Codex Extension** via MCP settings:
-
-| IDE | Command |
-|---|---|
-| Cursor / Codex Extension | `npx.cmd -y @samarth208p/0mcp@latest start` *(Windows)* |
-| Cursor / Codex Extension | `npx -y @samarth208p/0mcp@latest start` *(Mac/Linux)* |
-
-> See [INSTALLATION.md](./INSTALLATION.md) for step-by-step screenshots for every IDE.
-
-### 4. Create your AI system prompt
-Add `.cursorrules` (Cursor) or `.vscode/instructions.md` (VS Code) to your project root — see [INSTALLATION.md](./INSTALLATION.md) for the recommended prompt.
+### 2. Get Testnet Tokens
+- **0G tokens** -> https://faucet.0g.ai (The primary currency for memory storage)
+- **Sepolia ETH** -> https://sepoliafaucet.com (Optional; the built-in 0G paymaster covers this)
 
 ---
 
-### Alternative: Build from Source
-```bash
-git clone https://github.com/Samarth208P/0MCP.git
-cd 0MCP
-npm install && npm run build
-node build/src/cli.js init
-```
+## System Architecture: Powered by 0G
+
+### 1. The Intelligence Vault (Context and Storage)
+Memory is encrypted locally via AES-256-GCM and anchored to **0G Storage**. Retrieval uses a deterministic Keyword-Recency ranking to maximize relevance while minimizing token usage.
+
+![The Intelligence Vault Architecure](./maps/Context.png)
+
+### 2. The Discovery Layer (ENS and Access)
+ENS names (.0mcp.eth) act as the human-readable map to decentralized 0G brains. Rentals are issued as time-bound wrapped subnames.
+
+![The Discovery Layer Architecture](./maps/Identity.png)
+
+### 3. The Economic Engine (Payments and Gas)
+A **0G-Native** economy where 0G tokens sponsor Ethereum gas via an ERC-4337 Paymaster bridge, settled through Uniswap v4 and KeeperHub.
+
+![The Economic Engine Architecture](./maps/Payment.png)
 
 ---
 
-## 🚀 Key Features
-
-0MCP transforms your AI from a stateless chatbot into a compounding engineering partner. Every prompt is silently enriched with encrypted project history.
-
-* **🧠 Persistent Context (0G Storage):** No more "Goldfish memory." Your agent remembers past architectural decisions and bug fixes. Memory is stored reliably on 0G's decentralized data availability layer.
-* **🔐 AES-256-GCM Encryption:** Absolute privacy. All context payloads are encrypted locally using AES-GCM derived from your private key before being sent to 0G. Only you can decrypt your agent's memory.
-* **🧩 IDE Native (MCP):** Zero changes to your workflow. Works out-of-the-box with Antigravity, Cursor, VS Code, and Codex Extension via the Model Context Protocol.
-* **💎 Brain iNFTs (ERC-7857):** Accumulate your agent's context over a project and mint it as an intelligent NFT. Share, rent, or sell your agent's domain expertise to others.
-* **🌐 ENS Identity Layer:** Brains aren't just hashes; they are discoverable via ENS (e.g., `sampy.0mcp.eth`). Rental access is granted via ENS subnames (`renter.sampy.0mcp.eth`). Brain names are registered **automatically** on first server start.
-* **🤖 Smart Brain Detection:** Already have a brain? The server detects it and adopts it. Pointed to someone else's brain? It loads it as an imported context source — no manual steps.
-* **🛡️ KeeperHub Protected Execution:** When your agent needs to execute an on-chain transaction, 0MCP routes it safely through KeeperHub's MCP proxy, guaranteeing MEV-protection and dynamic gas execution.
-* **🦄 Uniswap V4 Payments:** Want to rent a Brain priced in WETH, but only have USDC? The agent automatically constructs a Uniswap V4 auto-swap and routes it through KeeperHub. Pay in any token.
+## 0G Innovation: Brain iNFTs (ERC-7857)
+0MCP introduces the concept of **Intelligent NFTs** on the 0G Chain. 
+- **Assetization of Expertise:** Over weeks of development, your agent builds a unique "Mental Model" of your codebase. 0MCP allows you to mint this model as a tradeable iNFT.
+- **Secure Portability:** Because the metadata points directly to 0G Storage roots, your agent's brain can be loaded into any IDE, anywhere in the world, while remaining cryptographically secured.
 
 ---
 
-## 🏗️ Architecture Stack
-
-| Layer | Technology |
-|---|---|
-| **Protocol** | Model Context Protocol (MCP) JSON-RPC |
-| **Storage & Compute** | 0G Storage Turbo + 0G Storage Indexer |
-| **Assetization** | Brain iNFT (ERC-7857) on 0G Chain |
-| **Identity & Access** | ENS Text Records & Subname Issuance |
-| **On-Chain Execution** | KeeperHub |
-| **Payment Routing** | Uniswap V4 SDK |
+## KeeperHub Innovation: The "Headless Executive" Architecture
+0MCP integrates KeeperHub as the core Executive Layer to ensure that all 0G and Ethereum transactions—including brain rentals and minting—are executed with MEV protection and guaranteed delivery.
 
 ---
 
-## 📖 The Core Loop
+## KeeperHub Builder Feedback
 
-1. **Prompt:** You type a prompt in Antigravity / Cursor / VS Code / Codex Extension.
+This section provides technical feedback based on our integration of the KeeperHub MCP server and JSON-RPC execution layer.
+
+### 1. UX and Integration Friction
+*   **JSON-RPC Schema Ambiguity:** The `onchain_exec` tool schema in the MCP server does not explicitly define the units for the `slippage` parameter (e.g., basis points vs. percentage strings). This caused several `PriceLimitExceeded` reverts during initial testing.
+    *   **Actionable Fix:** Update the MCP tool definition to use Zod descriptors that explicitly state: `"slippage: percentage as float (e.g. 0.5 for 0.5%)"`.
+*   **Diagnostic Transparency:** When a transaction fails during the "Private RPC Routing" phase, the error returned to the MCP client is often a generic `500 Internal Server Error`.
+    *   **Actionable Fix:** Provide granular error codes (e.g., `KH_001: Simulation Failed`, `KH_002: Insufficient Gas Buffer`) to allow AI agents to programmatically adjust their intent before retrying.
+
+### 2. Documentation Gaps
+*   **Uniswap v4 Hook Pathing:** The documentation for executing complex v4 swaps through KeeperHub lacks examples for pools with active hooks. We had to spend significant time calculating the `sqrtPriceLimitX96` manually to ensure compatibility with the KeeperHub executor.
+    *   **Actionable Fix:** Add a "V4 Advanced" section to the docs with example calldata for hook-enabled swaps.
+
+### 3. Feature Requests for Agentic Workflows
+*   **Real-time Audit Websockets:** Currently, agents must poll the `get_tx_status` endpoint. A WebSocket stream for "Execution Events" would allow IDE-based agents (like 0MCP) to provide real-time status updates to the user (e.g., "KeeperHub is simulating your trade...") without blocking the main event loop.
+*   **Contextual Metadata Tags:** Allow a `metadata` object in the execution request. If we could tag a TX with `{ "project": "0MCP", "action": "Brain-Rental" }`, it would make the KeeperHub Dashboard a powerful audit tool for multi-agent systems.
+*   **Gas Price Simulation Wrapper:** A "Pre-flight" tool that estimates the total cost (including the KeeperHub premium) in both native tokens and 0G tokens. This would help 0MCP calculate accurate rental prices for users.
+
+---
+
+## THE CORE LOOP
+
+1. **Prompt:** You type a prompt in your IDE.
 2. **Retrieve:** 0MCP intercepts it, querying 0G for relevant project history.
-3. **Decrypt & Inject:** Context is decrypted locally and injected into the LLM's system prompt.
-4. **Respond:** Your AI model responds — now with full project memory.
-5. **Encrypt & Save:** The new interaction is encrypted (AES-256-GCM) and logged immutably back to 0G.
+3. **Decrypt and Inject:** Context is decrypted locally and injected into the LLM system prompt.
+4. **Respond:** AI responds with full project memory.
+5. **Encrypt and Save:** New insights are encrypted and logged back to 0G immutably.
 
-*Built during ETHGlobal Open Agents 2026*
+*Built by Samarth Patel*

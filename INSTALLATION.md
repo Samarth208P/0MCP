@@ -40,7 +40,7 @@ Your wallet needs tokens on two networks:
 
 Choose your IDE and add the 0MCP server exactly as shown.
 
-### 🟢 Cursor / VS Code / Codex Extension
+### Cursor / VS Code / Codex Extension
 
 1. Go to your IDE's MCP Settings (e.g., **Cursor Settings** → **Features** → **MCP**)
 2. Click **+ Add new MCP server**
@@ -56,7 +56,7 @@ Choose your IDE and add the 0MCP server exactly as shown.
 
 ---
 
-### 🔵 Antigravity / Cline / Roo / Continue.dev
+### Antigravity / Cline / Roo / Continue.dev
 
 For AI agents and extensions that use a JSON configuration file (such as Antigravity's `mcp_config.json`), insert the following into your `mcpServers` block:
 
@@ -82,19 +82,19 @@ Save the configuration file. The server will restart automatically or when you r
 
 To ensure the AI autonomously uses the memory layer, you must add the **0MCP Agent Instructions** to your IDE's project rules or system prompt.
 
-### 🟣 Antigravity
+### Antigravity
 
 1. Open the **Antigravity** interface in your project.
 2. Look for the **Rules** or **Context** section (or click the `+` icon in the rules view).
 3. Paste the following block into your **Project Rules**:
 
-### 🟢 Cursor / VS Code
+### Cursor / VS Code
 
 Create a file called **`.cursorrules`** (Cursor) or **`.vscode/instructions.md`** (VS Code) in your project root with this content:
 
 ---
 
-### 📋 0MCP Agent Instructions (Copy & Paste)
+### 0MCP Agent Instructions (Copy & Paste)
 
 ```markdown
 # 0MCP Agent Instructions
