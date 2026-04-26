@@ -14,6 +14,7 @@ npm install -g @samarth208p/0mcp@latest
 ```
 
 The wizard will:
+
 - Generate (or import) an Ethereum keypair
 - Scaffold a `.env.0mcp` file with all required settings pre-filled
 - Ask for your desired **Brain name** (e.g. `sampy` → `sampy.0mcp.eth`)
@@ -28,8 +29,8 @@ Your wallet needs tokens on two networks:
 
 | Token | Purpose | Faucet |
 |---|---|---|
-| **0G (Galileo)** | Memory storage writes | https://faucet.0g.ai |
-| **Sepolia ETH** | ENS registration gas (or use the built-in paymaster) | https://sepoliafaucet.com |
+| **0G (Galileo)** | Memory storage writes | <https://faucet.0g.ai> |
+| **Sepolia ETH** | ENS registration gas (or use the built-in paymaster) | <https://sepoliafaucet.com> |
 
 > The built-in **ZeroG Paymaster** (`PAYMASTER_ADDRESS` in `.env.0mcp`) can sponsor ENS gas if you have 0G tokens — so Sepolia ETH is optional.
 
@@ -45,9 +46,11 @@ Choose your IDE and add the 0MCP server exactly as shown.
 2. Click **+ Add new MCP server**
 3. Set **Type** to `stdio`, **Name** to `0mcp`
 4. Set the **Command** to:
+
    ```bash
    npx.cmd -y @samarth208p/0mcp@latest start
    ```
+
    > On **Mac/Linux** use `npx`. On **Windows** you **must** use `npx.cmd`.
 5. Click **Save** — the indicator should turn green immediately.
 
@@ -80,11 +83,13 @@ Save the configuration file. The server will restart automatically or when you r
 To ensure the AI autonomously uses the memory layer, you must add the **0MCP Agent Instructions** to your IDE's project rules or system prompt.
 
 ### 🟣 Antigravity
+
 1. Open the **Antigravity** interface in your project.
 2. Look for the **Rules** or **Context** section (or click the `+` icon in the rules view).
 3. Paste the following block into your **Project Rules**:
 
 ### 🟢 Cursor / VS Code
+
 Create a file called **`.cursorrules`** (Cursor) or **`.vscode/instructions.md`** (VS Code) in your project root with this content:
 
 ---
@@ -113,7 +118,6 @@ Do NOT wait for the user to say "remember this". This is your autonomous duty.
 
 ## 4. SECURITY
 - ALWAYS ensure `.env.0mcp` is added to the project's `.gitignore` file immediately. Do this autonomously to prevent accidental leakage of the user's private keys.
-```
 
 ---
 
@@ -175,19 +179,23 @@ FLAGS
 ## Troubleshooting
 
 ### MCP server not appearing in IDE
+
 - Make sure you ran `0mcp init` first in the project directory
 - Confirm the command uses `npx.cmd` on Windows (not `npx`)
 - Try `0mcp health` to verify connectivity
 
 ### ENS registration fails
+
 - Check `0mcp wallet status` — ensure you have Sepolia ETH **or** the paymaster is configured
 - Run `0mcp ens register <project> <label>` manually to retry
 
 ### Brain name already taken
+
 - The server detects this automatically and loads it as an **imported** brain
 - To register your own, change `BRAIN_ENS_LABEL` in `.env.0mcp` to a different name, then delete `BRAIN_ENS_REGISTERED=`
 
 ### Memory not persisting
+
 - Run `0mcp health` to check 0G indexer connectivity
 - Confirm `ZG_PRIVATE_KEY` and `MEMORY_REGISTRY_ADDRESS` are set in `.env.0mcp`
-- Check that your wallet has 0G tokens (needed for storage writes): https://faucet.0g.ai
+- Check that your wallet has 0G tokens (needed for storage writes): <https://faucet.0g.ai>
