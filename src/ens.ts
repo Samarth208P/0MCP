@@ -204,42 +204,72 @@ async function createOrUpdateSubname(
   const parentNode = nameHash(parentName);
   const signerAddress = await signer.getAddress();
 
-  if (parentState.wrapped) {
-    if (parentState.effectiveOwner.toLowerCase() !== signerAddress.toLowerCase()) {
-      const registrarAddr = process.env.SUBNAME_REGISTRAR_ADDRESS;
-      if (registrarAddr) {
-        console.error(`\n[ens] ℹ️  Using Public Subname Registrar at ${registrarAddr}`);
-        const registrarAbi = ["function register(string label, address newOwner) external"];
-        const registrar = new ethers.Contract(registrarAddr, registrarAbi, signer);
-        const tx = await registrar.register(normalizedLabel, signerAddress);
-        await tx.wait();
-        console.error(`[ens]   ✓ public wrapped subname created: ${childName} | TX: ${tx.hash}`);
-      } else {
-        console.error(`\n[ens] ⚠️  Wallet does not natively own parent domain ${parentName} and SUBNAME_REGISTRAR_ADDRESS is not set.`);
-        console.error(`[ens] ℹ️  Demo Mode: Assumed successful CCIP off-chain registration for ${childName}!\n`);
-        return childName;
-      }
-    } else {
-      const tx = await (wrapper.setSubnodeRecord as (
-        parentNode: string,
-        label: string,
-        owner: string,
-        resolver: string,
-        ttl: number,
-        fuses: number,
-        expiry: bigint
-      ) => Promise<ethers.ContractTransactionResponse>)(
-        parentNode,
-        normalizedLabel,
-        signerAddress,
-        ENS_PUBLIC_RESOLVER_ADDRESS,
-        TTL,
-        0,
-        expirySecondsFromNow(durationDays)
-      );
+  if (parentState.effectiveOwner.toLowerCase() !== signerAddress.toLowerCase()) {
+    const registrarAddr = process.env.SUBNAME_REGISTRAR_ADDRESS;
+    if (registrarAddr) {
+      console.error(`\n[ens] ℹ️  Using Public Subname Registrar at ${registrarAddr}`);
+      const registrarAbi = ["function register(string label, address newOwner) external"];
+      const registrar = new ethers.Contract(registrarAddr, registrarAbi, signer);
+      const tx = await registrar.register(normalizedLabel, signerAddress);
       await tx.wait();
-      console.error(`[ens]   ✓ wrapped subname created: ${childName} | TX: ${tx.hash}`);
+      console.error(`[ens]   ✓ public subname created via registrar: ${childName} | TX: ${tx.hash}`);
+      
+      // Need to write resolver records next via ENS Public Resolver
+      await writeResolverRecords(signer, childName, addressRecord, textRecords);
+
+      // We might need to transfer registry ownership if the registrar sets it to the signer
+      // but finalOwner is different.
+      if (finalOwner.toLowerCase() !== signerAddress.toLowerCase()) {
+        try {
+          if (parentState.wrapped) {
+            const transferTx = await (wrapper.safeTransferFrom as any)(
+              signerAddress,
+              finalOwner,
+              tokenIdForName(childName),
+              1n,
+              "0x"
+            );
+            await transferTx.wait();
+          } else {
+            const transferTx = await (registry.setOwner as any)(nameHash(childName), finalOwner);
+            await transferTx.wait();
+          }
+          console.error(`[ens]   ✓ ownership transferred: ${childName} → ${finalOwner}`);
+        } catch (e) {
+          console.error(`[ens] ⚠️  Could not transfer final ownership to ${finalOwner}: ${e}`);
+        }
+      }
+      return childName;
+    } else if (parentState.wrapped) {
+      console.error(`\n[ens] ⚠️  Wallet does not natively own parent domain ${parentName} and SUBNAME_REGISTRAR_ADDRESS is not set.`);
+      console.error(`[ens] ℹ️  Demo Mode: Assumed successful CCIP off-chain registration for ${childName}!\n`);
+      return childName;
+    } else {
+      throw new Error(`Signer does not control parent ENS name ${parentName}.`);
     }
+  }
+
+  // At this point, the signer DOES naturally own the parent node.
+  if (parentState.wrapped) {
+    const tx = await (wrapper.setSubnodeRecord as (
+      parentNode: string,
+      label: string,
+      owner: string,
+      resolver: string,
+      ttl: number,
+      fuses: number,
+      expiry: bigint
+    ) => Promise<ethers.ContractTransactionResponse>)(
+      parentNode,
+      normalizedLabel,
+      signerAddress,
+      ENS_PUBLIC_RESOLVER_ADDRESS,
+      TTL,
+      0,
+      expirySecondsFromNow(durationDays)
+    );
+    await tx.wait();
+    console.error(`[ens]   ✓ wrapped subname created: ${childName} | TX: ${tx.hash}`);
 
     await writeResolverRecords(signer, childName, addressRecord, textRecords);
 
@@ -262,10 +292,6 @@ async function createOrUpdateSubname(
     }
 
     return childName;
-  }
-
-  if (parentState.effectiveOwner.toLowerCase() !== signerAddress.toLowerCase()) {
-    throw new Error(`Signer does not control parent ENS name ${parentName}.`);
   }
 
   const tx = await (registry.setSubnodeRecord as (
