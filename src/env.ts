@@ -23,34 +23,35 @@ function parseLine(line: string): [string, string] | null {
   return key ? [key, value] : null;
 }
 
-export function loadLocalEnv(startDir: string = process.cwd()): void {
+export function loadLocalEnv(startDir?: string): void {
   if (loaded) return;
 
-  let current = startDir;
+  const dirsToTry = [startDir, process.env.INIT_CWD, process.cwd()].filter(Boolean) as string[];
   let envPath = "";
 
-  // Helper to check for a specific filename
   const checkFile = (dir: string, filename: string) => {
     const candidate = path.resolve(dir, filename);
     if (fs.existsSync(candidate)) return candidate;
     return null;
   };
 
-  while (current) {
-    // Prefer .env.0mcp over .env
-    const found = checkFile(current, ".env.0mcp") || checkFile(current, ".env");
-    if (found) {
-      envPath = found;
-      break;
+  for (const dir of dirsToTry) {
+    let current = dir;
+    while (current) {
+      const found = checkFile(current, ".env.0mcp") || checkFile(current, ".env");
+      if (found) {
+        envPath = found;
+        break;
+      }
+      const parent = path.dirname(current);
+      if (parent === current) break;
+      current = parent;
     }
-
-    const parent = path.dirname(current);
-    if (parent === current) break;
-    current = parent;
+    if (envPath) break;
   }
 
   if (!envPath) {
-    console.error(`[0MCP] ⚠️  No .env.0mcp or .env file found searching upwards from ${startDir}`);
+    console.error(`[0MCP] ⚠️  No .env.0mcp or .env file found (tried INIT_CWD and cwd)`);
     return;
   }
 
