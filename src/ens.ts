@@ -83,12 +83,13 @@ function getSigner(): ethers.Wallet {
   return new ethers.Wallet(key, getProvider());
 }
 
+import { execOnchain } from "./keeper.js";
+
 /**
  * Submits a write transaction to an ENS contract.
- * Automatically uses the ZeroGPaymaster (ERC-4337) if:
- *   1. PAYMASTER_ADDRESS is configured
- *   2. The user has 0G balance but no Sepolia ETH
- * Otherwise sends directly (normal flow).
+ * Automatically uses KeeperHub if KEEPER_API_KEY is configured.
+ * Otherwise uses ZeroGPaymaster (ERC-4337) if PAYMASTER_ADDRESS is set and needed.
+ * Finally falls back to direct transaction.
  *
  * @param signer    The ethers Wallet to sign with
  * @param contract  Target ENS contract instance  
@@ -102,21 +103,30 @@ async function sponsoredWrite(
   args: unknown[],
 ): Promise<{ txHash: string }> {
   const address = signer.address;
-  const usePaymaster = await shouldUsePaymaster(address);
+  const targetAddress = await contract.getAddress();
+  const calldata = contract.interface.encodeFunctionData(method, args);
 
-  if (usePaymaster) {
-    // Encode the calldata and route via ERC-4337 paymaster
-    const calldata = contract.interface.encodeFunctionData(method, args);
-    const result = await submitSponsoredENSTx(signer, await contract.getAddress(), calldata);
-    return { txHash: result.userOpHash };
-  } else {
-    // Normal direct send (user has Sepolia ETH)
-    const fn = contract[method] as (...a: unknown[]) => Promise<ethers.ContractTransactionResponse>;
-    const tx = await fn(...args);
-    await tx.wait(1);
-    return { txHash: tx.hash };
+  // 1. KeeperHub (Highest Priority - MEV protected, gas sponsored/handled by KeeperHub logic)
+  if (process.env.KEEPER_API_KEY) {
+    console.error(`[ens] Routing via KeeperHub (MEV protected) → ${targetAddress}`);
+    const result = await execOnchain(targetAddress, calldata, "0");
+    return { txHash: result.txHash };
   }
+
+  // 2. Paymaster ERC-4337 (Fallback if KeeperHub not used)
+  const usePaymaster = await shouldUsePaymaster(address);
+  if (usePaymaster) {
+    const result = await submitSponsoredENSTx(signer, targetAddress, calldata);
+    return { txHash: result.userOpHash };
+  } 
+  
+  // 3. Direct Send
+  const fn = contract[method] as (...a: unknown[]) => Promise<ethers.ContractTransactionResponse>;
+  const tx = await fn(...args);
+  await tx.wait(1);
+  return { txHash: tx.hash };
 }
+
 
 function requireSubLabel(label: string): string {
   if (!label || label.includes(".")) {
@@ -502,12 +512,15 @@ export async function resolveBrain(ensName: string): Promise<BrainMetadata> {
 
 export async function issueRental(
   brain_ens: string,
-  renter_address: string
+  renter_address: string,
+  durationDays?: number,
+  paymentTx?: string
 ): Promise<string> {
   const signer = getSigner();
   const brainMeta = await resolveBrain(brain_ens);
   const label = `renter-${renter_address.slice(2, 10).toLowerCase()}`;
-  const expiresAt = expiryMs(getRentalDurationDays());
+  const days = durationDays || getRentalDurationDays();
+  const expiresAt = expiryMs(days);
 
   const subname = await createOrUpdateSubname(
     signer,
@@ -524,13 +537,17 @@ export async function issueRental(
         ? [["com.0mcp.access.contract", brainMeta.contract_address] as [string, string]]
         : []),
       ["com.0mcp.access.status", "active"],
+      ["com.0mcp.access.duration_days", String(days)],
+      ...(paymentTx ? [["com.0mcp.access.payment", paymentTx] as [string, string]] : []),
     ],
-    getRentalDurationDays()
+    days
   );
+
 
   console.error(`[ens] ✅ Rental issued: ${subname} → ${renter_address} until ${new Date(expiresAt).toISOString()}`);
   return subname;
 }
+
 
 export async function verifyAccess(subname: string): Promise<AccessResult> {
   const provider = getProvider();

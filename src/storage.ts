@@ -26,7 +26,7 @@ const ZG_CHAIN_ID = Number(process.env.ZG_CHAIN_ID ?? "16602");
 const DEFAULT_INDEXER_RPC = "https://indexer-storage-testnet-turbo.0g.ai";
 const DEFAULT_INDEXER_FALLBACK_RPC = "https://indexer-storage-testnet-standard.0g.ai";
 function getMemoryRegistryAddress(): string {
-  return process.env.MEMORY_REGISTRY_ADDRESS || "0x1aa3A642Ee0fE818471B0B3e75157cbbaA8C75CD";
+  return process.env.MEMORY_REGISTRY_ADDRESS || "0xC5887CA90aC2A5c6f1E7FC536A5363B961F18813";
 }
 const MEMORY_REGISTRY_ABI = [
   "function setProjectRoot(string calldata projectId, string calldata rootHash) external",

@@ -35,7 +35,7 @@ const getPaymasterAddress = () => process.env.PAYMASTER_ADDRESS ?? "0xb1Ab695dbc
 const getPaymasterRelayUrl = () => process.env.PAYMASTER_RELAY_URL ?? "https://relay.0mcp.eth.limo";
 const getPaymasterBundlerUrl = () => process.env.PAYMASTER_BUNDLER_URL
   ?? "https://api.pimlico.io/v2/sepolia/rpc?apikey=public";
-const getRelaySignerAddress = () => process.env.RELAY_SIGNER_ADDRESS ?? "";
+const getRelaySignerAddress = () => process.env.RELAY_SIGNER_ADDRESS ?? "0x4b39D7EE758332a43772f4192B9b864C2Cc4A6eE";
 
 // ERC-4337 EntryPoint on Sepolia (v0.6)
 const ENTRY_POINT = "0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789";

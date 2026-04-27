@@ -51,12 +51,28 @@ server.registerTool(
       project_id: z.string().describe("Unique identifier for the project/workspace"),
       prompt: z.string().describe("The current user prompt to find relevant context for"),
       max_entries: z.number().optional().default(5).describe("Max context entries to return (default 5)"),
+      requester_ens: z.string().optional().describe("Optional ENS name of the requester (owner or renter) to verify access"),
     }),
     annotations: { readOnlyHint: true, openWorldHint: false },
   },
-  async ({ project_id, prompt, max_entries }) => {
+  async ({ project_id, prompt, max_entries, requester_ens }) => {
     try {
       loadLocalEnv(undefined, project_id);
+
+      // --- PRIVACY CHECK ---
+      if (requester_ens) {
+        console.error(`[0MCP] Verifying access for ${requester_ens} to project ${project_id}...`);
+        const access = await verifyAccess(requester_ens);
+        if (!access.valid) {
+          // If not a valid renter, check if it's the owner of the project
+          const brain = await resolveBrain(access.grantedBy || requester_ens).catch(() => null);
+          if (!brain || brain.project_id !== project_id) {
+            throw new Error(`Unauthorized: ${requester_ens} does not have access to project ${project_id}`);
+          }
+        }
+        console.error(`[0MCP] Access granted to ${requester_ens}`);
+      }
+
       const context = await buildContext(project_id, prompt, max_entries);
       return {
         content: [
@@ -69,11 +85,12 @@ server.registerTool(
     } catch (err) {
       console.error(`[0MCP] get_context error: ${err}`);
       return {
-        content: [{ type: "text" as const, text: `No prior context found for project: ${project_id}` }],
+        content: [{ type: "text" as const, text: `Error retrieving context: ${err instanceof Error ? err.message : String(err)}` }],
       };
     }
   }
 );
+
 
 // ── TOOL 2: save_memory ───────────────────────────────────────────────────────
 // Called by the IDE after every response — saves interaction to 0G KV + Log.
@@ -341,12 +358,14 @@ server.registerTool(
     inputSchema: z.object({
       brain_ens: z.string().describe("ENS name of the Brain to rent"),
       renter_address: z.string().describe("Wallet address of the renter"),
+      duration_days: z.number().optional().describe("Number of days for the rental"),
+      payment_tx: z.string().optional().describe("Optional 0G transaction hash of the rental payment"),
     }),
     annotations: { readOnlyHint: false },
   },
-  async ({ brain_ens, renter_address }) => {
+  async ({ brain_ens, renter_address, duration_days, payment_tx }) => {
     try {
-      const subname = await issueRental(brain_ens, renter_address);
+      const subname = await issueRental(brain_ens, renter_address, duration_days, payment_tx);
       return {
         content: [{ type: "text" as const, text: `✓ Rental issued: ${subname}` }],
       };
@@ -358,6 +377,8 @@ server.registerTool(
     }
   }
 );
+
+
 
 // ── TOOL 9: verify_access ─────────────────────────────────────────────────────
 // STUB: Roadmap — requires ENS NameWrapper for subname verification.
