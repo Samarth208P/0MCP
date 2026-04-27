@@ -36,6 +36,12 @@ export function loadLocalEnv(startDir?: string, project_id?: string): void {
   const dirsToTry = [startDir, process.env.INIT_CWD, process.cwd()].filter(Boolean) as string[];
   
   if (project_id) {
+    // 1. Prioritise project_id as a direct path (common for Antigravity/IDE usage)
+    if (path.isAbsolute(project_id)) {
+      dirsToTry.unshift(project_id);
+    }
+    
+    // 2. Fallback to global registry lookup
     const registeredPath = getProjectLocation(project_id);
     if (registeredPath) {
       dirsToTry.unshift(registeredPath);
