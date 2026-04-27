@@ -440,10 +440,7 @@ async function cmdHealth(): Promise<void> {
   nl();
   info("Checking .env.0mcp configuration…");
   const required: Array<[string, string]> = [
-    ["ZG_PRIVATE_KEY",          "0G transactions"],
-    ["MEMORY_REGISTRY_ADDRESS", "on-chain memory registry"],
-    ["ENS_PRIVATE_KEY",         "ENS writes"],
-    ["INFT_CONTRACT_ADDRESS",   "Brain iNFT minting"],
+    ["ZG_PRIVATE_KEY",          "0G transactions and ENS writes"],
     ["KEEPER_API_KEY",          "KeeperHub / exec_onchain"],
   ];
   for (const [key, purpose] of required) {

@@ -1,6 +1,6 @@
 {
   "name": "@samarth208p/0mcp",
-  "version": "2.1.2",
+  "version": "2.2.0",
   "description": "Persistent memory layer for AI coding agents — 0G + ENS + Brain iNFT",
   "type": "module",
   "main": "./build/src/index.js",
