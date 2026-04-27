@@ -110,7 +110,7 @@ server.registerTool(
       return {
         content: [{
           type: "text" as const,
-          text: `✓ Memory saved for project: ${project_id}\n0G Storage TX: ${result.txHash}\nIndexer: ${result.endpoint}`,
+          text: `✓ Memory saved for project: ${project_id}\n0G Storage TX: \`${result.txHash}\``,
         }],
       };
     } catch (err) {

@@ -149,17 +149,17 @@ function printHelp(): void {
   row("keygen [--save]",                            "Generate Ethereum keypair (safe offline)");
   out("");
   out(c.bold("  MEMORY"));
-  row("memory list <project> [--json]",             "List all saved memory entries");
-  row("memory export <project> [--file <path>]",    "Export full snapshot JSON to stdout or file");
+  row("memory list <project-id> [--json]",          "List all saved memory entries");
+  row("memory export <project-id> [--file <path>]", "Export full snapshot JSON to stdout or file");
   out("");
   out(c.bold("  BRAIN"));
-  row("brain mint <project> [--recipient <addr>] [--ens <label>]", "Mint Brain iNFT + register ENS in one step");
-  row("brain load <ens-name> --into <project>",     "Load external Brain into local project");
-  row("brain share <project> [--json]",             "Show ENS name + token ID");
-  row("brain status <project> [--json]",            "Show token, contract, entry count");
+  row("brain mint <project-id> [--recipient <addr>] [--ens <label>]", "Mint Brain iNFT + register ENS in one step");
+  row("brain load <ens-name> --into <project-id>",     "Load external Brain into local project");
+  row("brain share <project-id> [--json]",             "Show ENS name + token ID");
+  row("brain status <project-id> [--json]",            "Show token, contract, entry count");
   out("");
   out(c.bold("  ENS"));
-  row("ens register <project> <label>",             "Register <label>.0mcp.eth subname");
+  row("ens register <project-id> <label>",          "Register <label>.0mcp.eth subname");
   row("ens rename <old-name> <new-label>",          "Rename an existing Brain ENS name");
   row("ens resolve <ens-name> [--json]",            "Resolve ENS → metadata JSON");
   row("ens issue <brain-ens> <renter-addr>",        "Issue a rental subname");
@@ -169,7 +169,7 @@ function printHelp(): void {
   row("inft status <contract> <token-id> [--json]", "Check tokenURI on 0G testnet");
   out("");
   out(c.bold("  DEMO"));
-  row("demo [--project <id>]",                      "Run 5-act demo (seeds real 0G memory)");
+  row("demo [--project <project-id>]",            "Run 5-act demo (seeds real 0G memory)");
   out("");
   out(c.bold("  FLAGS"));
   out(`    ${c.cyan("--json")}     Output raw JSON (all read commands)`);
@@ -432,7 +432,8 @@ async function cmdHealth(): Promise<void> {
     const { checkStorageHealth } = await import("./storage.js");
     const health = await checkStorageHealth();
     out(`    Storage:     ${health.kvHealthy ? c.green("healthy") : c.red("unhealthy")}${health.kvEndpoint ? c.dim(` (${health.kvEndpoint})`) : ""}`);
-    out(`    Indexer:     ${health.indexerHealthy ? c.green("healthy") : c.red("unhealthy")}${health.indexerEndpoint ? c.dim(` (${health.indexerEndpoint})`) : ""}`);
+    out(`    Indexer:     ${health.indexerHealthy ? c.green("healthy") : c.red("unhealthy")}${health.indexerEndpoint ? c.dim(` (RPC: ${health.indexerEndpoint})`) : ""}`);
+    out(`    Explorer:    ${c.cyan("https://storagescan-galileo.0g.ai")}`);
     if (health.issues.length > 0) {
       nl();
       health.issues.forEach((issue) => warn(issue));
@@ -497,7 +498,7 @@ async function cmdHealth(): Promise<void> {
 // ── COMMAND: memory list ──────────────────────────────────────────────────────
 
 async function cmdMemoryList(project: string, flags: Record<string, string | true>): Promise<void> {
-  if (!project) { err("Usage: 0mcp memory list <project>"); process.exit(1); }
+  if (!project) { err("Usage: 0mcp memory list <project-id>"); process.exit(1); }
 
   const { loadAllEntries } = await import("./storage.js");
   const entries = await loadAllEntries(project);
@@ -528,7 +529,7 @@ async function cmdMemoryList(project: string, flags: Record<string, string | tru
 // ── COMMAND: memory export ────────────────────────────────────────────────────
 
 async function cmdMemoryExport(project: string, flags: Record<string, string | true>): Promise<void> {
-  if (!project) { err("Usage: 0mcp memory export <project> [--file <path>]"); process.exit(1); }
+  if (!project) { err("Usage: 0mcp memory export <project-id> [--file <path>]"); process.exit(1); }
 
   info(`Exporting snapshot for project: ${project}…`);
   const { exportSnapshot } = await import("./snapshot.js");
@@ -548,7 +549,7 @@ async function cmdMemoryExport(project: string, flags: Record<string, string | t
 // ── COMMAND: brain mint ───────────────────────────────────────────────────────
 
 async function cmdBrainMint(project: string, flags: Record<string, string | true>): Promise<void> {
-  if (!project) { err("Usage: 0mcp brain mint <project> [--recipient <wallet>] [--ens <label>]"); process.exit(1); }
+  if (!project) { err("Usage: 0mcp brain mint <project-id> [--recipient <wallet>] [--ens <label>]"); process.exit(1); }
 
   const recipient = flag(flags, "recipient") ?? process.env.MY_WALLET_ADDRESS ?? "";
   if (!recipient) {
@@ -595,9 +596,9 @@ async function cmdBrainMint(project: string, flags: Record<string, string | true
 // ── COMMAND: brain load ───────────────────────────────────────────────────────
 
 async function cmdBrainLoad(ensName: string, flags: Record<string, string | true>): Promise<void> {
-  if (!ensName) { err("Usage: 0mcp brain load <ens-name> --into <project>"); process.exit(1); }
+  if (!ensName) { err("Usage: 0mcp brain load <ens-name> --into <project-id>"); process.exit(1); }
   const intoProject = flag(flags, "into");
-  if (!intoProject) { err("--into <project> is required"); process.exit(1); }
+  if (!intoProject) { err("--into <project-id> is required"); process.exit(1); }
 
   header(`BRAIN LOAD — ${ensName}`);
   info(`Loading brain from ENS: ${ensName}…`);
@@ -617,7 +618,7 @@ async function cmdBrainLoad(ensName: string, flags: Record<string, string | true
 // ── COMMAND: brain share ──────────────────────────────────────────────────────
 
 async function cmdBrainShare(project: string, flags: Record<string, string | true>): Promise<void> {
-  if (!project) { err("Usage: 0mcp brain share <project>"); process.exit(1); }
+  if (!project) { err("Usage: 0mcp brain share <project-id>"); process.exit(1); }
 
   const { loadAllEntries } = await import("./storage.js");
   const entries = await loadAllEntries(project);
@@ -639,14 +640,14 @@ async function cmdBrainShare(project: string, flags: Record<string, string | tru
   info(`Entries:        ${entries.length}`);
   nl();
   out(c.bold("  Share this ENS name so others can load your Brain:"));
-  out(`    ${c.cyan(`0mcp brain load ${ensName} --into <their-project>`)}`);
+  out(`    ${c.cyan(`0mcp brain load ${ensName} --into <their-project-id>`)}`);
   nl();
 }
 
 // ── COMMAND: brain status ─────────────────────────────────────────────────────
 
 async function cmdBrainStatus(project: string, flags: Record<string, string | true>): Promise<void> {
-  if (!project) { err("Usage: 0mcp brain status <project>"); process.exit(1); }
+  if (!project) { err("Usage: 0mcp brain status <project-id>"); process.exit(1); }
 
   const { loadAllEntries } = await import("./storage.js");
   const entries = await loadAllEntries(project);
@@ -681,7 +682,7 @@ async function cmdBrainStatus(project: string, flags: Record<string, string | tr
 // ── COMMAND: ens register ─────────────────────────────────────────────────────
 
 async function cmdEnsRegister(project: string, label: string): Promise<void> {
-  if (!project || !label) { err("Usage: 0mcp ens register <project> <label>"); process.exit(1); }
+  if (!project || !label) { err("Usage: 0mcp ens register <project-id> <label>"); process.exit(1); }
 
   header(`ENS REGISTER — ${label}.0mcp.eth`);
   info(`Project: ${project}`);
@@ -1077,6 +1078,7 @@ async function cmdWalletStatus(flags: Record<string, string | true>): Promise<vo
   out(`    ● Active Brain:${brainLabel}`);
   out(`    ● iNFT:        ${dashboard.config.inft_contract}`);
   out(`    ● Storage:     ${c.green("0G Galileo testnet")}`);
+  out(`    ● Explorer:    ${c.cyan("https://storagescan-galileo.0g.ai")}`);
   nl();
   out(c.bold("  Tips:"));
   bull("Run `0mcp health` to verify network connectivity.");
@@ -1179,7 +1181,7 @@ async function main(): Promise<void> {
       info("Retrieving project list from 0G Registry…");
       nl();
       warn("Scanning not yet supported by standard Registry contract.");
-      bull("Use `0mcp memory list <project>` if you know the project ID.");
+      bull("Use `0mcp memory list <project-id>` if you know the project ID.");
       nl();
 
     } else if (command === "memory" && sub1 === "list") {
