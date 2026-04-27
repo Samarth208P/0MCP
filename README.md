@@ -29,7 +29,7 @@
 ### Contract Deployment Addresses
 | Contract | Address | Network |
 |---|---|---|
-| **Memory Registry** | `0x1aa3A642Ee0fE818471B0B3e75157cbbaA8C75CD` | **0G Galileo (Testnet)** |
+| **Memory Registry** | `0xC5887CA90aC2A5c6f1E7FC536A5363B961F18813` | **0G Galileo (Testnet)** |
 | **Brain iNFT (ERC-7857)** | `0xd07059e54017BbF424223cb089ffBC5e2558cF56` | **0G Galileo (Testnet)** |
 | **ZeroG Paymaster** | `0xb1Ab695dbcbA334A60712234d46264A617AD6d7f` | **Sepolia (Ethereum)** |
 | **Subname Registrar** | `0xA2C96740159b7a47541DEfF991aD5edfa671661d` | **Sepolia (Ethereum)** |

@@ -272,7 +272,7 @@ async function cmdInit(): Promise<void> {
   // Hardcoded defaults for 0G Galileo and Sepolia
   const zgRpc      = "https://evmrpc-testnet.0g.ai";
   const sepoliaRpc = "https://ethereum-sepolia-rpc.publicnode.com";
-  const registry   = "0x1aa3A642Ee0fE818471B0B3e75157cbbaA8C75CD";
+  const registry   = "0xC5887CA90aC2A5c6f1E7FC536A5363B961F18813";
   const inftAddr   = "0xd07059e54017BbF424223cb089ffBC5e2558cF56";
   const paymaster  = "0xb1Ab695dbcbA334A60712234d46264A617AD6d7f";
   const ensRegistrar = "0xA2C96740159b7a47541DEfF991aD5edfa671661d";
