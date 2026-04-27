@@ -56,17 +56,23 @@ The wizard generates your keypair, scaffolds .env, and reserves your 0G Brain id
 ### 1. The Intelligence Vault (Context and Storage)
 Memory is encrypted locally via AES-256-GCM and anchored to **0G Storage**. Retrieval uses a deterministic Keyword-Recency ranking to maximize relevance while minimizing token usage.
 
-![The Intelligence Vault Architecure](./maps/Context.png)
+<div align="center">
+  <img src="./maps/Context.png" alt="The Intelligence Vault Architecure" width="800" />
+</div>
 
 ### 2. The Discovery Layer (ENS and Access)
 ENS names (.0mcp.eth) act as the human-readable map to decentralized 0G brains. Rentals are issued as time-bound wrapped subnames.
 
-![The Discovery Layer Architecture](./maps/Identity.png)
+<div align="center">
+  <img src="./maps/Identity.png" alt="The Discovery Layer Architecture" width="800" />
+</div>
 
 ### 3. The Economic Engine (Payments and Gas)
 A **0G-Native** economy where 0G tokens sponsor Ethereum gas via an ERC-4337 Paymaster bridge, settled through Uniswap v4 and KeeperHub.
 
-![The Economic Engine Architecture](./maps/Payment.png)
+<div align="center">
+  <img src="./maps/Payment.png" alt="The Economic Engine Architecture" width="800" />
+</div>
 
 ---
 
