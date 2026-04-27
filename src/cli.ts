@@ -107,6 +107,25 @@ function hasFlag(flags: Record<string, string | true>, key: string): boolean {
   return key in flags;
 }
 
+/**
+ * Persists key-value pairs to the .env.0mcp file in the current directory.
+ */
+function persistEnv(updates: Record<string, string>): void {
+  const envPath = path.resolve(process.cwd(), ".env.0mcp");
+  if (!fs.existsSync(envPath)) return;
+  
+  let content = fs.readFileSync(envPath, "utf8");
+  for (const [key, value] of Object.entries(updates)) {
+    const re = new RegExp(`^${key}=.*$`, "m");
+    if (re.test(content)) {
+      content = content.replace(re, `${key}=${value}`);
+    } else {
+      content += `\n${key}=${value}`;
+    }
+  }
+  fs.writeFileSync(envPath, content);
+}
+
 // ── Readline helper (for init wizard) ────────────────────────────────────────
 
 async function prompt(question: string, defaultVal = ""): Promise<string> {
@@ -206,24 +225,8 @@ async function cmdKeygen(flags: Record<string, string | true>): Promise<void> {
   bull("0G Galileo OG tokens  → https://faucet.0g.ai");
   bull("Sepolia ETH           → https://sepoliafaucet.com");
   nl();
-
   if (hasFlag(flags, "save")) {
-    const envPath = path.resolve(process.cwd(), ".env.0mcp");
-    if (!fs.existsSync(envPath)) {
-      err(".env.0mcp file not found — run `0mcp init` first");
-      return;
-    }
-    let content = fs.readFileSync(envPath, "utf8");
-    const replaceOrAppend = (key: string, value: string): void => {
-      const re = new RegExp(`^${key}=.*$`, "m");
-      if (re.test(content)) {
-        content = content.replace(re, `${key}=${value}`);
-      } else {
-        content += `\n${key}=${value}`;
-      }
-    };
-    replaceOrAppend("ZG_PRIVATE_KEY", privateKey);
-    fs.writeFileSync(envPath, content);
+    persistEnv({ ZG_PRIVATE_KEY: privateKey });
     ok("Keys saved to .env.0mcp (ZG_PRIVATE_KEY)");
   }
 }
@@ -290,8 +293,18 @@ async function cmdInit(): Promise<void> {
   const existingBrain = await lookupPrimaryBrain(address);
   if (existingBrain) {
     suggestedBrain = existingBrain.replace(".0mcp.eth", "");
-    ok(`Found existing Brain: ${c.cyan(existingBrain)}`);
+    ok(`Found existing Brain on ENS: ${c.cyan(existingBrain)}`);
   }
+
+  // Also check 0G iNFT balance
+  const zgProvider = new ethers.JsonRpcProvider(zgRpc);
+  const inftContract = new ethers.Contract(inftAddr, ["function balanceOf(address) view returns (uint256)"], zgProvider);
+  try {
+    const inftBal = await inftContract.balanceOf(address);
+    if (inftBal > 0n) {
+      ok(`Found ${inftBal} Brain iNFT(s) on 0G Galileo testnet.`);
+    }
+  } catch (err) { /* ignore */ }
 
   const brainNameInput = await prompt(
     `Your Brain name (e.g. 'sampy' — will become sampy.0mcp.eth)${suggestedBrain ? ` [${suggestedBrain}]` : ""}`,
@@ -336,13 +349,20 @@ KEEPER_API_KEY=${keeperKey}
   ok(".env.0mcp written successfully (0MCP is ready).");
 
   if (brainLabel) {
+    const fullBrainName = `${brainLabel}.0mcp.eth`;
+    persistEnv({
+      BRAIN_ENS_NAME: fullBrainName,
+      BRAIN_ENS_LABEL: brainLabel,
+      BRAIN_ENS_MODE: existingBrain && existingBrain.startsWith(`${brainLabel}.`) ? "own" : ""
+    });
+
     nl();
     const isSync = existingBrain && existingBrain.startsWith(`${brainLabel}.`);
-    ok(isSync ? `Existing Brain identified: ${c.bold(existingBrain)}` : `Brain name reserved: ${c.bold(`${brainLabel}.0mcp.eth`)}`);
+    ok(isSync ? `Existing Brain identified: ${c.bold(existingBrain)}` : `Brain name reserved: ${c.bold(fullBrainName)}`);
     
     const promptMsg = isSync 
-      ? `Sync/Update ${brainLabel}.0mcp.eth records on ENS now?` 
-      : `Attempt to register ${brainLabel}.0mcp.eth on ENS now?`;
+      ? `Sync/Update ${fullBrainName} records on ENS now?` 
+      : `Attempt to register ${fullBrainName} on ENS now?`;
 
     const doReg = await prompt(promptMsg, "yes");
     if (doReg.toLowerCase().startsWith("y")) {
@@ -357,18 +377,17 @@ KEEPER_API_KEY=${keeperKey}
       process.env.INFT_CONTRACT_ADDRESS   = inftAddr;
       process.env.KEEPER_API_KEY          = keeperKey;
       try {
-        await cmdEnsRegister(brainLabel, brainLabel);
-        // Persist completion state
-        let updatedContent = fs.readFileSync(envPath, "utf8");
-        updatedContent = updatedContent.replace("BRAIN_ENS_REGISTERED=", "BRAIN_ENS_REGISTERED=true");
-        updatedContent = updatedContent.replace("BRAIN_ENS_MODE=", "BRAIN_ENS_MODE=own");
-        fs.writeFileSync(envPath, updatedContent);
+        await cmdEnsRegister(project_id, brainLabel);
+        persistEnv({
+          BRAIN_ENS_REGISTERED: "true",
+          BRAIN_ENS_MODE: "own"
+        });
       } catch (err) {
         warn(`Registration failed: ${err}`);
-        info(`Fund your wallet and run manually: 0mcp ens register ${brainLabel} ${brainLabel}`);
+        info(`Fund your wallet and run manually: 0mcp ens register ${project_id} ${brainLabel}`);
       }
     } else {
-      info(`You can register your brain identity manually later: 0mcp ens register ${brainLabel} ${brainLabel}`);
+      info(`You can register your brain identity manually later: 0mcp ens register ${project_id} ${brainLabel}`);
     }
   }
 
@@ -548,6 +567,11 @@ async function cmdBrainMint(project: string, flags: Record<string, string | true
       token_id: parseInt(result.tokenId, 10),
     });
     ok(`ENS name registered: ${c.bold(ensName)}`);
+    persistEnv({
+      BRAIN_ENS_NAME: ensName,
+      BRAIN_ENS_LABEL: ensLabel,
+      BRAIN_ENS_MODE: "own"
+    });
   }
 
   nl();
@@ -571,6 +595,11 @@ async function cmdBrainLoad(ensName: string, flags: Record<string, string | true
   out(`    Entries:      ${snapshot.entry_count}`);
   out(`    Top keywords: ${snapshot.metadata.top_keywords.slice(0, 5).join(", ")}`);
   out(`    Date range:   ${new Date(snapshot.metadata.date_range.first).toISOString().split("T")[0]} → ${new Date(snapshot.metadata.date_range.last).toISOString().split("T")[0]}`);
+  
+  persistEnv({
+    BRAIN_ENS_NAME: ensName,
+    BRAIN_ENS_MODE: "loaded"
+  });
   nl();
   info(`This snapshot is ready to inject into project: ${intoProject}`);
   info("(Full snapshot JSON available via: 0mcp memory export)");
@@ -665,6 +694,11 @@ async function cmdEnsRegister(project: string, label: string): Promise<void> {
 
   nl();
   ok(`ENS name registered: ${c.bold(ensName)}`);
+  persistEnv({
+    BRAIN_ENS_NAME: ensName,
+    BRAIN_ENS_LABEL: label,
+    BRAIN_ENS_MODE: "own"
+  });
   nl();
   info("Next steps:");
   bull(`Mint iNFT:         0mcp brain mint ${project}`);
@@ -689,6 +723,11 @@ async function cmdEnsRename(oldName: string, newLabel: string): Promise<void> {
 
   nl();
   ok(`ENS name successfully renamed to: ${c.bold(newEnsName)}`);
+  persistEnv({
+    BRAIN_ENS_NAME: newEnsName,
+    BRAIN_ENS_LABEL: newLabel,
+    BRAIN_ENS_MODE: "own"
+  });
   nl();
 }
 
