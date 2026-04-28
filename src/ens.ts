@@ -14,6 +14,8 @@ import { ethers } from "ethers";
 import "./env.js";
 import type { BrainMetadata, AccessResult } from "./types.js";
 import { shouldUsePaymaster, submitSponsoredENSTx } from "./paymaster.js";
+import { TxLogger } from "./txlogger.js";
+import { withRetry } from "./utils.js";
 
 const getSepoliaRpcUrl = () => process.env.SEPOLIA_RPC_URL ?? "https://ethereum-sepolia-rpc.publicnode.com";
 const getEnsPrivateKey = () => process.env.ENS_PRIVATE_KEY ?? "";
@@ -67,66 +69,83 @@ function tokenIdForName(name: string): bigint {
 }
 
 function getProvider(): ethers.JsonRpcProvider {
-  return new ethers.JsonRpcProvider(getSepoliaRpcUrl());
+  const req = new ethers.FetchRequest(getSepoliaRpcUrl());
+  req.timeout = 60000;
+  return new ethers.JsonRpcProvider(req, 11155111, { staticNetwork: true as never });
 }
 
-/**
- * Returns an ethers Wallet for signing ENS transactions.
- * Falls back to the same private key as ZG_PRIVATE_KEY if ENS_PRIVATE_KEY is
- * not separately set — safe since ENS Sepolia and 0G Galileo are separate chains.
- */
-function getSigner(): ethers.Wallet {
+function getSigner(): ethers.Wallet | null {
   const key = getEnsPrivateKey() || process.env.ZG_PRIVATE_KEY || "";
-  if (!key) {
-    throw new Error("No signing key found — set ENS_PRIVATE_KEY or ZG_PRIVATE_KEY in .env");
-  }
+  if (!key) return null;
   return new ethers.Wallet(key, getProvider());
 }
 
-import { execOnchain } from "./keeper.js";
-
 /**
  * Submits a write transaction to an ENS contract.
- * Automatically uses KeeperHub if KEEPER_API_KEY is configured.
- * Otherwise uses ZeroGPaymaster (ERC-4337) if PAYMASTER_ADDRESS is set and needed.
- * Finally falls back to direct transaction.
  *
- * @param signer    The ethers Wallet to sign with
- * @param contract  Target ENS contract instance  
- * @param method    Contract method name (e.g. "setText")
- * @param args      Method arguments array
+ * Priority order:
+ *   1. Paymaster  — when PAYMASTER_ADDRESS is set and user has no Sepolia ETH (gas-free via 0G)
+ *   2. Direct     — fallback when user has Sepolia ETH
+ *
+ * All paths record the TX via TxLogger so users see every receipt.
  */
 async function sponsoredWrite(
-  signer: ethers.Wallet,
+  signer: ethers.Wallet | null,
   contract: ethers.Contract,
   method: string,
   args: unknown[],
+  label?: string,   // human-readable label for TxLogger (defaults to method name)
 ): Promise<{ txHash: string }> {
+  return withRetry(
+    () => _sponsoredWriteInternal(signer, contract, method, args, label),
+    3,
+    5000
+  );
+}
+
+async function _sponsoredWriteInternal(
+  signer: ethers.Wallet | null,
+  contract: ethers.Contract,
+  method: string,
+  args: unknown[],
+  label?: string,
+): Promise<{ txHash: string }> {
+  if (!signer) {
+    throw new Error("Private key missing. Signer required for on-chain writes.");
+  }
+
   const address = signer.address;
   const targetAddress = await contract.getAddress();
   const calldata = contract.interface.encodeFunctionData(method, args);
+  const txLabel = label ?? method;
 
-  // 1. KeeperHub (Highest Priority - MEV protected, gas sponsored/handled by KeeperHub logic)
-  if (process.env.KEEPER_API_KEY) {
-    console.error(`[ens] Routing via KeeperHub (MEV protected) → ${targetAddress}`);
-    const result = await execOnchain(targetAddress, calldata, "0");
-    return { txHash: result.txHash };
-  }
-
-  // 2. Paymaster ERC-4337 (Fallback if KeeperHub not used)
+  // ── 1. ERC-4337 Paymaster ─────────────────────────────────────────────────
   const usePaymaster = await shouldUsePaymaster(address);
   if (usePaymaster) {
+    console.error(`[ens] Using ERC-4337 paymaster for: ${txLabel}`);
     const result = await submitSponsoredENSTx(signer, targetAddress, calldata);
+    TxLogger.record({
+      chain:  "sepolia",
+      label:  txLabel,
+      txHash: result.userOpHash,
+      via:    "paymaster",
+    });
     return { txHash: result.userOpHash };
-  } 
-  
-  // 3. Direct Send
+  }
+
+  // ── 3. Direct transaction ─────────────────────────────────────────────────
+  console.error(`[ens] Direct send (Sepolia ETH): ${txLabel}`);
   const fn = contract[method] as (...a: unknown[]) => Promise<ethers.ContractTransactionResponse>;
   const tx = await fn(...args);
   await tx.wait(1);
+  TxLogger.record({
+    chain:  "sepolia",
+    label:  txLabel,
+    txHash: tx.hash,
+    via:    "direct",
+  });
   return { txHash: tx.hash };
 }
-
 
 function requireSubLabel(label: string): string {
   if (!label || label.includes(".")) {
@@ -169,27 +188,31 @@ async function getNameOwner(
 }
 
 async function writeResolverRecords(
-  signer: ethers.Wallet,
+  signer: ethers.Wallet | null,
   ensName: string,
   addressRecord: string | undefined,
   textRecords: Array<[string, string]>
 ): Promise<void> {
   const node = nameHash(ensName);
-  const resolver = new ethers.Contract(getEnsResolverAddress(), PUBLIC_RESOLVER_ABI, signer);
+  const provider = signer?.provider ?? getProvider();
+  const resolver = new ethers.Contract(getEnsResolverAddress(), PUBLIC_RESOLVER_ABI, signer ?? provider);
 
   if (addressRecord) {
-    const { txHash } = await sponsoredWrite(signer, resolver, "setAddr", [node, addressRecord]);
-    console.error(`[ens]   ✓ setAddr(${ensName}, ${addressRecord}) | TX: ${txHash}`);
+    await sponsoredWrite(signer, resolver, "setAddr", [node, addressRecord], `setAddr(${ensName})`);
   }
 
   for (const [key, value] of textRecords) {
-    const { txHash } = await sponsoredWrite(signer, resolver, "setText", [node, key, value]);
-    console.error(`[ens]   ✓ setText(${ensName}, ${key}) | TX: ${txHash}`);
+    // Truncate value for log readability (private key never appears — values are metadata)
+    const shortVal = value.length > 40 ? `${value.slice(0, 37)}…` : value;
+    await sponsoredWrite(
+      signer, resolver, "setText", [node, key, value],
+      `setText(${key}=${shortVal})`
+    );
   }
 }
 
 async function createOrUpdateSubname(
-  signer: ethers.Wallet,
+  signer: ethers.Wallet | null,
   parentName: string,
   label: string,
   finalOwner: string,
@@ -199,131 +222,108 @@ async function createOrUpdateSubname(
 ): Promise<string> {
   const normalizedLabel = requireSubLabel(label);
   const childName = buildChildName(normalizedLabel, parentName);
-  const provider = signer.provider as ethers.JsonRpcProvider;
-  const registry = new ethers.Contract(getEnsRegistryAddress(), ENS_REGISTRY_ABI, signer);
-  const wrapper = new ethers.Contract(getEnsNameWrapperAddress(), NAME_WRAPPER_ABI, signer);
+  const provider = signer?.provider ?? getProvider();
+  const registry = new ethers.Contract(getEnsRegistryAddress(), ENS_REGISTRY_ABI, signer ?? provider);
+  const wrapper = new ethers.Contract(getEnsNameWrapperAddress(), NAME_WRAPPER_ABI, signer ?? provider);
 
-  const parentState = await getNameOwner(provider, parentName);
+  const parentState = await getNameOwner(provider as ethers.JsonRpcProvider, parentName);
   const parentNode = nameHash(parentName);
+  if (!signer) {
+     throw new Error(`Signer required to register ${childName}.`);
+  }
   const signerAddress = await signer.getAddress();
-
   if (parentState.effectiveOwner.toLowerCase() !== signerAddress.toLowerCase()) {
-    const registrarAddr = process.env.SUBNAME_REGISTRAR_ADDRESS ?? "0xA2C96740159b7a47541DEfF991aD5edfa671661d";
+      const registrarAddr = process.env.SUBNAME_REGISTRAR_ADDRESS ?? "0xA2C96740159b7a47541DEfF991aD5edfa671661d";
     if (registrarAddr) {
-      console.error(`\n[ens] ℹ️  Using Public Subname Registrar at ${registrarAddr}`);
+      console.error(`\n[ens] Using Public Subname Registrar at ${registrarAddr}`);
       const registrarAbi = ["function register(string label, address newOwner) external"];
       const registrar = new ethers.Contract(registrarAddr, registrarAbi, signer);
-      
-      const { txHash } = await sponsoredWrite(signer, registrar, "register", [normalizedLabel, signerAddress]);
-      console.error(`[ens]   ✓ public subname created via registrar: ${childName} | TX: ${txHash}`);
-      
-      // Need to write resolver records next via ENS Public Resolver
+
+      await sponsoredWrite(
+        signer, registrar, "register", [normalizedLabel, signerAddress],
+        `register(${childName})`
+      );
+
       await writeResolverRecords(signer, childName, addressRecord, textRecords);
 
-      // We might need to transfer registry ownership if the registrar sets it to the signer
-      // but finalOwner is different.
       if (finalOwner.toLowerCase() !== signerAddress.toLowerCase()) {
         try {
           if (parentState.wrapped) {
-            await sponsoredWrite(signer, wrapper, "safeTransferFrom", [
-              signerAddress,
-              finalOwner,
-              tokenIdForName(childName),
-              1n,
-              "0x"
-            ]);
+            await sponsoredWrite(
+              signer, wrapper, "safeTransferFrom",
+              [signerAddress, finalOwner, tokenIdForName(childName), 1n, "0x"],
+              `transfer(${childName} → ${finalOwner.slice(0, 10)}…)`
+            );
           } else {
-            await sponsoredWrite(signer, registry, "setOwner", [nameHash(childName), finalOwner]);
+            await sponsoredWrite(
+              signer, registry, "setOwner", [nameHash(childName), finalOwner],
+              `setOwner(${childName})`
+            );
           }
-          console.error(`[ens]   ✓ ownership transferred: ${childName} → ${finalOwner}`);
         } catch (e) {
-          console.error(`[ens] ⚠️  Could not transfer final ownership to ${finalOwner}: ${e}`);
+          console.error(`[ens] ⚠️  Could not transfer ownership to ${finalOwner}: ${e}`);
         }
       }
       return childName;
     } else if (parentState.wrapped) {
-      console.error(`\n[ens] ⚠️  Wallet does not natively own parent domain ${parentName} and SUBNAME_REGISTRAR_ADDRESS is not set.`);
-      console.error(`[ens] ℹ️  Demo Mode: Assumed successful CCIP off-chain registration for ${childName}!\n`);
+      console.error(`[ens] ⚠️  No SUBNAME_REGISTRAR_ADDRESS — assuming CCIP off-chain registration`);
       return childName;
     } else {
-      throw new Error(`Signer does not control parent ENS name ${parentName}.`);
+      throw new Error(`Signer does not control parent ENS name ${parentName}. Set SUBNAME_REGISTRAR_ADDRESS or use your own ENS parent.`);
     }
   }
 
-  // At this point, the signer DOES naturally own the parent node.
   if (parentState.wrapped) {
-    const { txHash } = await sponsoredWrite(signer, wrapper, "setSubnodeRecord", [
-      parentNode,
-      normalizedLabel,
-      signerAddress,
-      getEnsResolverAddress(),
-      TTL,
-      0,
-      expirySecondsFromNow(durationDays)
-    ]);
-    console.error(`[ens]   ✓ wrapped subname created: ${childName} | TX: ${txHash}`);
-
+    await sponsoredWrite(
+      signer, wrapper, "setSubnodeRecord",
+      [parentNode, normalizedLabel, signerAddress, getEnsResolverAddress(), TTL, 0, expirySecondsFromNow(durationDays)],
+      `setSubnodeRecord(${childName})`
+    );
     await writeResolverRecords(signer, childName, addressRecord, textRecords);
 
     if (finalOwner.toLowerCase() !== signerAddress.toLowerCase()) {
-      const { txHash: transferHash } = await sponsoredWrite(signer, wrapper, "safeTransferFrom", [
-        signerAddress,
-        finalOwner,
-        tokenIdForName(childName),
-        1n,
-        "0x"
-      ]);
-      console.error(`[ens]   ✓ wrapped ownership transferred: ${childName} → ${finalOwner} | TX: ${transferHash}`);
+      await sponsoredWrite(
+        signer, wrapper, "safeTransferFrom",
+        [signerAddress, finalOwner, tokenIdForName(childName), 1n, "0x"],
+        `transfer(${childName} → ${finalOwner.slice(0, 10)}…)`
+      );
     }
-
     return childName;
   }
 
-  const { txHash } = await sponsoredWrite(signer, registry, "setSubnodeRecord", [
-    parentNode,
-    labelHash(normalizedLabel),
-    signerAddress,
-    getEnsResolverAddress(),
-    TTL
-  ]);
-  console.error(`[ens]   ✓ subname created: ${childName} | TX: ${txHash}`);
-
+  await sponsoredWrite(
+    signer, registry, "setSubnodeRecord",
+    [parentNode, labelHash(normalizedLabel), signerAddress, getEnsResolverAddress(), TTL],
+    `setSubnodeRecord(${childName})`
+  );
   await writeResolverRecords(signer, childName, addressRecord, textRecords);
 
   if (finalOwner.toLowerCase() !== signerAddress.toLowerCase()) {
-    const { txHash: transferHash } = await sponsoredWrite(signer, registry, "setOwner", [
-      nameHash(childName),
-      finalOwner
-    ]);
-    console.error(`[ens]   ✓ ownership transferred: ${childName} → ${finalOwner} | TX: ${transferHash}`);
+    await sponsoredWrite(
+      signer, registry, "setOwner", [nameHash(childName), finalOwner],
+      `setOwner(${childName})`
+    );
   }
 
   return childName;
 }
 
-async function setPrimaryName(signer: ethers.Wallet, ensName: string): Promise<void> {
+async function setPrimaryName(signer: ethers.Wallet | null, ensName: string): Promise<void> {
+  if (!signer) return; 
   try {
     const reverseRegistrar = new ethers.Contract(
       getEnsReverseRegistrarAddress(),
       REVERSE_REGISTRAR_ABI,
       signer
     );
-    const { txHash } = await sponsoredWrite(signer, reverseRegistrar, "setName", [ensName]);
-    console.error(`[ens]   ✓ reverse name set: ${ensName} | TX: ${txHash}`);
+    await sponsoredWrite(signer, reverseRegistrar, "setName", [ensName], `setName(${ensName})`);
   } catch (e) {
-    console.error(`[ens] ⚠️  Could not set reverse name (expected in Demo Mode for off-chain CCIP names).`);
+    console.error(`[ens] ⚠️  Could not set reverse name (expected for off-chain CCIP names): ${e}`);
   }
 }
 
 /**
  * Probes whether an ENS name is already registered on Sepolia — never throws.
- *
- * Returns:
- *   { exists: false }                        — name is free
- *   { exists: true, ownerAddress, metadata } — name is taken; metadata may be null
- *                                              if it has no 0MCP text records yet
- *
- * @param ensName - Full ENS name (e.g. "sampy.0mcp.eth")
  */
 export async function probeBrainENS(ensName: string): Promise<{
   exists: boolean;
@@ -339,7 +339,6 @@ export async function probeBrainENS(ensName: string): Promise<{
   const NULL_ADDR = "0x0000000000000000000000000000000000000000";
   const provider = getProvider();
 
-  // Quick registry check — if owner is 0x0 the name is unclaimed
   try {
     const registry = new ethers.Contract(getEnsRegistryAddress(), ENS_REGISTRY_ABI, provider);
     const node = nameHash(ensName);
@@ -349,11 +348,9 @@ export async function probeBrainENS(ensName: string): Promise<{
       return { exists: false, ownerAddress: "", metadata: null };
     }
 
-    // Name exists — determine effective owner
     const ownerInfo = await getNameOwner(provider, ensName);
     const ownerAddress = ownerInfo.effectiveOwner;
 
-    // Try to read 0MCP text records (non-fatal if resolver is missing)
     try {
       const resolver = await provider.getResolver(ensName);
       if (!resolver) return { exists: true, ownerAddress, metadata: null };
@@ -386,7 +383,8 @@ export async function probeBrainENS(ensName: string): Promise<{
   }
 }
 
-const getInftContractAddress = () => process.env.INFT_CONTRACT_ADDRESS ?? "0xd07059e54017BbF424223cb089ffBC5e2558cF56";
+const getInftContractAddress = () =>
+  process.env.INFT_CONTRACT_ADDRESS ?? "0xd07059e54017BbF424223cb089ffBC5e2558cF56";
 
 export async function registerAgent(
   project_id: string,
@@ -394,7 +392,9 @@ export async function registerAgent(
   metadata: Partial<BrainMetadata>
 ): Promise<string> {
   const signer = getSigner();
+  if (!signer) throw new Error("Private key missing (ENS_PRIVATE_KEY or ZG_PRIVATE_KEY).");
   const signerAddress = await signer.getAddress();
+  
   const ensName = await createOrUpdateSubname(
     signer,
     getEnsParentName(),
@@ -421,9 +421,6 @@ export async function registerAgent(
   return ensName;
 }
 
-/**
- * Looks up the primary ENS name for an address and returns it if it ends in .0mcp.eth
- */
 export async function lookupPrimaryBrain(address: string): Promise<string | null> {
   try {
     const provider = getProvider();
@@ -437,15 +434,15 @@ export async function lookupPrimaryBrain(address: string): Promise<string | null
   }
 }
 
-export async function renameAgent(
-  oldName: string,
-  newLabel: string
-): Promise<string> {
+export async function renameAgent(oldName: string, newLabel: string): Promise<string> {
   const signer = getSigner();
+  if (!signer) {
+    throw new Error("Private key required to rename Brain (signer not found).");
+  }
   const signerAddress = await signer.getAddress();
-  
+
   const metadata = await resolveBrain(oldName);
-  
+
   if (!metadata.wallet || metadata.wallet.toLowerCase() !== signerAddress.toLowerCase()) {
     throw new Error(`You do not own the brain ${oldName}. Only the owner can rename it.`);
   }
@@ -476,7 +473,10 @@ export async function resolveBrain(ensName: string): Promise<BrainMetadata> {
   const resolver = await provider.getResolver(ensName);
 
   if (!resolver) {
-    throw new Error(`ENS resolver not found for ${ensName}. Is the name registered on Sepolia?`);
+    throw new Error(
+      `ENS resolver not found for ${ensName}. ` +
+      `Is the name registered on Sepolia? Run: 0mcp ens register <project-id> <label>`
+    );
   }
 
   const [agent, description, sessions, brain, contract, wallet] = await Promise.all([
@@ -491,7 +491,7 @@ export async function resolveBrain(ensName: string): Promise<BrainMetadata> {
   if (!agent) {
     throw new Error(
       `No com.0mcp.agent text record on ${ensName}. ` +
-        `Run register_agent first or check the ENS name is correct.`
+      `Run: 0mcp ens register <project-id> <label>`
     );
   }
 
@@ -506,7 +506,6 @@ export async function resolveBrain(ensName: string): Promise<BrainMetadata> {
     wallet: wallet ?? owner.effectiveOwner,
   };
 
-  console.error(`[ens] ✓ Resolved: ${ensName} → project="${agent}" owner="${metadata.wallet}"`);
   return metadata;
 }
 
@@ -543,11 +542,9 @@ export async function issueRental(
     days
   );
 
-
   console.error(`[ens] ✅ Rental issued: ${subname} → ${renter_address} until ${new Date(expiresAt).toISOString()}`);
   return subname;
 }
-
 
 export async function verifyAccess(subname: string): Promise<AccessResult> {
   const provider = getProvider();

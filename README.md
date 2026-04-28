@@ -12,7 +12,7 @@
 
 - **0G Storage (KV/Log):** Every interaction is encrypted and logged to 0G, creating an immutable history of project decisions.
 - **0G Chain (ERC-7857):** Agent expertise is assetized as "Brain iNFTs," allowing intelligence to be minted, shared, and monetized on the 0G network.
-- **0G-Native Economy:** Users can operate entirely using 0G tokens, with all gas and cross-chain complexities handled by our integrated Paymaster and KeeperHub executors.
+- **0G-Native Economy:** Users can operate entirely using 0G tokens, with gas and cross-chain complexities handled by our integrated Paymaster.
 
 ---
 
@@ -67,45 +67,12 @@ ENS names (.0mcp.eth) act as the human-readable map to decentralized 0G brains. 
   <img src="./maps/Identity.png" alt="The Discovery Layer Architecture" width="800" />
 </div>
 
-### 3. The Economic Engine (Payments and Gas)
-A **0G-Native** economy where 0G tokens sponsor Ethereum gas via an ERC-4337 Paymaster bridge, settled through Uniswap v4 and KeeperHub.
-
-<div align="center">
-  <img src="./maps/Payment.png" alt="The Economic Engine Architecture" width="800" />
-</div>
-
 ---
 
 ## 0G Innovation: Brain iNFTs (ERC-7857)
 0MCP introduces the concept of **Intelligent NFTs** on the 0G Chain. 
 - **Assetization of Expertise:** Over weeks of development, your agent builds a unique "Mental Model" of your codebase. 0MCP allows you to mint this model as a tradeable iNFT.
 - **Secure Portability:** Because the metadata points directly to 0G Storage roots, your agent's brain can be loaded into any IDE, anywhere in the world, while remaining cryptographically secured.
-
----
-
-## KeeperHub Innovation: The "Headless Executive" Architecture
-0MCP integrates KeeperHub as the core Executive Layer to ensure that all 0G and Ethereum transactions—including brain rentals and minting—are executed with MEV protection and guaranteed delivery.
-
----
-
-## KeeperHub Builder Feedback
-
-This section provides technical feedback based on our integration of the KeeperHub MCP server and JSON-RPC execution layer.
-
-### 1. UX and Integration Friction
-*   **JSON-RPC Schema Ambiguity:** The `onchain_exec` tool schema in the MCP server does not explicitly define the units for the `slippage` parameter (e.g., basis points vs. percentage strings). This caused several `PriceLimitExceeded` reverts during initial testing.
-    *   **Actionable Fix:** Update the MCP tool definition to use Zod descriptors that explicitly state: `"slippage: percentage as float (e.g. 0.5 for 0.5%)"`.
-*   **Diagnostic Transparency:** When a transaction fails during the "Private RPC Routing" phase, the error returned to the MCP client is often a generic `500 Internal Server Error`.
-    *   **Actionable Fix:** Provide granular error codes (e.g., `KH_001: Simulation Failed`, `KH_002: Insufficient Gas Buffer`) to allow AI agents to programmatically adjust their intent before retrying.
-
-### 2. Documentation Gaps
-*   **Uniswap v4 Hook Pathing:** The documentation for executing complex v4 swaps through KeeperHub lacks examples for pools with active hooks. We had to spend significant time calculating the `sqrtPriceLimitX96` manually to ensure compatibility with the KeeperHub executor.
-    *   **Actionable Fix:** Add a "V4 Advanced" section to the docs with example calldata for hook-enabled swaps.
-
-### 3. Feature Requests for Agentic Workflows
-*   **Real-time Audit Websockets:** Currently, agents must poll the `get_tx_status` endpoint. A WebSocket stream for "Execution Events" would allow IDE-based agents (like 0MCP) to provide real-time status updates to the user (e.g., "KeeperHub is simulating your trade...") without blocking the main event loop.
-*   **Contextual Metadata Tags:** Allow a `metadata` object in the execution request. If we could tag a TX with `{ "project": "0MCP", "action": "Brain-Rental" }`, it would make the KeeperHub Dashboard a powerful audit tool for multi-agent systems.
-*   **Gas Price Simulation Wrapper:** A "Pre-flight" tool that estimates the total cost (including the KeeperHub premium) in both native tokens and 0G tokens. This would help 0MCP calculate accurate rental prices for users.
 
 ---
 

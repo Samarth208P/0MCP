@@ -86,10 +86,14 @@ export interface SponsoredTxResult {
  */
 export async function hasSepoliaBalance(address: string): Promise<boolean> {
   try {
-    const provider = new ethers.JsonRpcProvider(getSepoliaRpcUrl());
-    const balance  = await provider.getBalance(address);
+    const provider = new ethers.JsonRpcProvider(getSepoliaRpcUrl(), 11155111, { staticNetwork: true as any });
+    const balance = await Promise.race([
+      provider.getBalance(address),
+      new Promise<bigint>((_, reject) => setTimeout(() => reject(new Error("Sepolia timeout")), 10000))
+    ]);
     return balance >= ethers.parseEther("0.005");
-  } catch {
+  } catch (err) {
+    console.error(`[paymaster] Balance check failed: ${err instanceof Error ? err.message : String(err)}`);
     return false;
   }
 }

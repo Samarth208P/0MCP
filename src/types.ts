@@ -90,10 +90,10 @@ export interface AccessResult {
   owner: string;
 }
 
-// ── KeeperHub types ───────────────────────────────────────────────────────────
+// ── TX Logger types ──────────────────────────────────────────────────────────
 
-/** Result of an on-chain execution routed through KeeperHub. */
+/** Result of an on-chain execution recorded in logs. */
 export interface ExecResult {
   txHash: string;
-  gasUsed: string;
+  gasUsed?: string;
 }

@@ -16,6 +16,9 @@ import "./env.js";
 import fs from "node:fs";
 import path from "node:path";
 import { ethers } from "ethers";
+import { lookupPrimaryBrain } from "./ens.js";
+import { TxLogger } from "./txlogger.js";
+import { withRetry } from "./utils.js";
 
 // ── ANSI colour helpers ───────────────────────────────────────────────────────
 
@@ -147,7 +150,7 @@ async function prompt(question: string, defaultVal = ""): Promise<string> {
 function printHelp(): void {
   out("");
   out(c.bold(c.cyan("  0MCP") + " — Persistent Memory Layer for AI Coding Agents"));
-  out(c.dim("  Powered by 0G · ENS · Brain iNFT · KeeperHub · Uniswap v4"));
+  out(c.dim("  Powered by 0G · ENS · Brain iNFT"));
   out("");
   out(c.bold("  USAGE"));
   out("    " + c.cyan("0mcp") + " <command> [subcommand] [options]");
@@ -186,9 +189,6 @@ function printHelp(): void {
   out("");
   out(c.bold("  INFT"));
   row("inft status <contract> <token-id> [--json]", "Check tokenURI on 0G testnet");
-  out("");
-  out(c.bold("  DEMO"));
-  row("demo [--project <project-id>]",            "Run 5-act demo (seeds real 0G memory)");
   out("");
   out(c.bold("  FLAGS"));
   out(`    ${c.cyan("--json")}     Output raw JSON (all read commands)`);
@@ -234,220 +234,70 @@ async function cmdKeygen(flags: Record<string, string | true>): Promise<void> {
 // ── COMMAND: init ─────────────────────────────────────────────────────────────
 
 async function cmdInit(): Promise<void> {
-  header("0MCP INIT — SETUP WIZARD");
-  info("This wizard generates your keys and scaffolds a .env.0mcp file.");
+  header("0MCP INIT");
+  info("Generates your .env.0mcp in 4 questions.");
   nl();
 
-  const genNew = await prompt("Generate a new keypair now?", "yes");
-  let privateKey = "";
+  // Q1: Private Key
+  let privateKey = await prompt("Your Private Key (optional — leave empty for KeeperHub Managed Wallet)", "");
   let address = "";
-
-  if (genNew.toLowerCase().startsWith("y")) {
-    const wallet = ethers.Wallet.createRandom();
-    privateKey = wallet.privateKey;
-    address = wallet.address;
-    nl();
-    ok(`New keypair generated`);
-    out(`    Address:     ${c.green(address)}`);
-    out(`    Private key: ${c.yellow(privateKey)}`);
-    warn("Store your private key safely. You will not see it again here.");
-    nl();
+  if (!privateKey) {
+    info("No key provided. Using KeeperHub Managed Wallet for identity.");
+    privateKey = ""; // Explicitly empty
   } else {
-    privateKey = await prompt("Paste your existing private key (0x-prefixed)");
-    if (privateKey && privateKey.startsWith("0x")) {
-      try {
-        const w = new ethers.Wallet(privateKey);
-        address = w.address;
-        ok(`Wallet address: ${c.green(address)}`);
-      } catch {
-        err("Invalid private key format.");
-        process.exit(1);
-      }
+    const { ethers } = await import("ethers");
+    try {
+      const w = new ethers.Wallet(privateKey);
+      address = w.address;
+      ok(`Wallet: ${c.green(address)}`);
+      warn("Save your private key safely — not shown again.");
+      nl();
+    } catch (e) {
+      err(`Invalid private key: ${e}`);
+      process.exit(1);
     }
   }
 
-  nl();
-  info("Configuring 0MCP environment…");
-  
-  // Hardcoded defaults for 0G Galileo and Sepolia
-  const zgRpc      = "https://evmrpc-testnet.0g.ai";
-  const sepoliaRpc = "https://ethereum-sepolia-rpc.publicnode.com";
-  const registry   = "0xC5887CA90aC2A5c6f1E7FC536A5363B961F18813";
-  const inftAddr   = "0xd07059e54017BbF424223cb089ffBC5e2558cF56";
-  const paymaster  = "0xb1Ab695dbcbA334A60712234d46264A617AD6d7f";
-  const ensRegistrar = "0xA2C96740159b7a47541DEfF991aD5edfa671661d";
-
+  // Q2: Project ID
   const currentFolder = path.basename(process.cwd());
-  const project_id = await prompt(`Project ID (unique identifier for this workspace)`, currentFolder);
-  
+  const project_id = await prompt("Project ID", currentFolder);
+
   const { saveProjectLocation } = await import("./registry.js");
   saveProjectLocation(project_id, process.cwd());
 
-  const keeperKey = await prompt("KeeperHub API key (optional — get at https://app.keeperhub.com)", "");
-  
-  let suggestedBrain = "";
-  const { lookupPrimaryBrain } = await import("./ens.js");
-  process.env.SEPOLIA_RPC_URL = sepoliaRpc; // Ensure ens.js can reach provider
-  
-  info(`Checking for existing Brain identity for ${address}…`);
-  const existingBrain = await lookupPrimaryBrain(address);
-  if (existingBrain) {
-    suggestedBrain = existingBrain.replace(".0mcp.eth", "");
-    ok(`Found primary Brain on ENS: ${c.cyan(existingBrain)}`);
-  }
+  // Q3: Brain name
+  const brainLabel = await prompt(`Brain ENS label (e.g. 'myagent' → myagent.0mcp.eth)`, "");
 
-  // Also check 0G iNFT balance and details
-  const zgProvider = new ethers.JsonRpcProvider(zgRpc);
-  const inftContract = new ethers.Contract(inftAddr, [
-    "function balanceOf(address) view returns (uint256)",
-    "function tokenOfOwnerByIndex(address owner, uint256 index) view returns (uint256)",
-    "function tokenURI(uint256 tokenId) view returns (string)"
-  ], zgProvider);
-
-  interface BrainChoice {
-    tokenId: string;
-    label: string;
-    entries: number;
-    keywords: string[];
-  }
-
-  const foundBrains: BrainChoice[] = [];
-
-  try {
-    const inftBal = await inftContract.balanceOf(address);
-    if (inftBal > 0n) {
-      info(`Found ${inftBal} Brain iNFT(s) on 0G Galileo testnet.`);
-      for (let i = 0; i < Number(inftBal); i++) {
-        try {
-          const tokenId = await inftContract.tokenOfOwnerByIndex(address, i);
-          const uri = await inftContract.tokenURI(tokenId);
-          const b64Match = uri.match(/^data:application\/json;base64,(.+)$/);
-          if (b64Match) {
-            const json = JSON.parse(Buffer.from(b64Match[1], "base64").toString("utf8"));
-            foundBrains.push({
-              tokenId: tokenId.toString(),
-              label: json.project_id || `Brain #${tokenId}`,
-              entries: json.entry_count || 0,
-              keywords: json.metadata?.top_keywords?.slice(0, 3) || []
-            });
-          }
-        } catch { /* skip failed decodes */ }
-      }
-    }
-  } catch (err) { /* ignore RPC errors during probe */ }
-
-  let selectedBrain: BrainChoice | null = null;
-  if (foundBrains.length > 0) {
-    nl();
-    out(c.bold("  Existing Brain iNFTs found:"));
-    foundBrains.forEach((b, i) => {
-      out(`    ${c.cyan(`[${i + 1}]`)} ${c.bold(b.label.padEnd(20))} ${c.dim(`(Token: ${b.tokenId}, Entries: ${b.entries})`)}`);
-      if (b.keywords.length > 0) out(`        ${c.dim(`Keywords: ${b.keywords.join(", ")}`)}`);
-    });
-    out(`    ${c.cyan(`[n]`)} ${c.dim("Create a brand new brain")}`);
-    nl();
-
-    const choice = await prompt("Select a Brain to use, or 'n' for new", "1");
-    if (choice.toLowerCase() !== "n") {
-      const idx = parseInt(choice, 10) - 1;
-      if (foundBrains[idx]) {
-        selectedBrain = foundBrains[idx];
-        suggestedBrain = selectedBrain.label;
-        ok(`Using existing Brain: ${c.bold(selectedBrain.label)} (#${selectedBrain.tokenId})`);
-      }
-    }
-  }
-
-  const brainNameInput = await prompt(
-    `Your Brain name (e.g. 'sampy' — will become sampy.0mcp.eth)${suggestedBrain ? ` [${suggestedBrain}]` : ""}`,
-    suggestedBrain
-  );
-
-  const brainName = brainNameInput || suggestedBrain;
-
-  // Normalise: strip parent suffix if the user typed the full ENS name
-  const brainLabelRaw = brainName.trim().toLowerCase();
-  const brainLabel = brainLabelRaw.endsWith(".0mcp.eth")
-    ? brainLabelRaw.slice(0, -".0mcp.eth".length)
-    : brainLabelRaw;
-  const fullBrainName = brainLabel ? `${brainLabel}.0mcp.eth` : "";
-  nl();
-
-  const envContent = `# 0MCP Environment Configuration
-# Generated by: 0mcp init
-# NEVER commit this file to git.
+  // Write .env.0mcp
+  const envContent = `# 0MCP Environment — generated by 0mcp init
+# DO NOT commit this file to git.
 
 PROJECT_ID=${project_id}
-
-# ── USER CREDENTIALS ──────────────────────────────
-# Replace with your own wallet's private key (needed for ENS management and 0G memory updates)
 ZG_PRIVATE_KEY=${privateKey}
+BRAIN_ENS_LABEL=${brainLabel}
+BRAIN_ENS_NAME=${brainLabel ? `${brainLabel}.0mcp.eth` : ""}
 
-# ── CONNECTIONS (Optional) ────────────────────────
-# KeeperHub provides MEV protection and smart gas estimation for all on-chain actions
-KEEPER_API_KEY=${keeperKey}
+# Defaults (pre-deployed on testnet — change only if you self-deploy)
+ZG_RPC_URL=https://evmrpc-testnet.0g.ai
+SEPOLIA_RPC_URL=https://ethereum-sepolia-rpc.publicnode.com
+MEMORY_REGISTRY_ADDRESS=0xC5887CA90aC2A5c6f1E7FC536A5363B961F18813
+INFT_CONTRACT_ADDRESS=0xd07059e54017BbF424223cb089ffBC5e2558cF56
+PAYMASTER_ADDRESS=0xb1Ab695dbcbA334A60712234d46264A617AD6d7f
+SUBNAME_REGISTRAR_ADDRESS=0xA2C96740159b7a47541DEfF991aD5edfa671661d
 `;
 
   const envPath = path.resolve(process.cwd(), ".env.0mcp");
-  if (fs.existsSync(envPath)) {
-    const overwrite = await prompt(".env.0mcp already exists. Overwrite?", "no");
-    if (!overwrite.toLowerCase().startsWith("y")) {
-      warn("Aborted. .env.0mcp not changed.");
-      return;
-    }
-  }
-
   fs.writeFileSync(envPath, envContent);
-  ok(".env.0mcp written successfully (0MCP is ready).");
-
-  if (brainLabel) {
-    const fullBrainName = `${brainLabel}.0mcp.eth`;
-    persistEnv({
-      BRAIN_ENS_NAME: fullBrainName,
-      BRAIN_ENS_LABEL: brainLabel,
-      BRAIN_ENS_MODE: existingBrain && existingBrain.startsWith(`${brainLabel}.`) ? "own" : ""
-    });
-
-    nl();
-    const isSync = existingBrain && existingBrain.startsWith(`${brainLabel}.`);
-    ok(isSync ? `Existing Brain identified: ${c.bold(existingBrain)}` : `Brain name reserved: ${c.bold(fullBrainName)}`);
-    
-    const promptMsg = isSync 
-      ? `Sync/Update ${fullBrainName} records on ENS now?` 
-      : `Attempt to register ${fullBrainName} on ENS now?`;
-
-    const doReg = await prompt(promptMsg, "yes");
-    if (doReg.toLowerCase().startsWith("y")) {
-      // Inject environment variables immediately so cmdEnsRegister and storage.js find them
-      process.env.ZG_PRIVATE_KEY          = privateKey;
-      process.env.ENS_PRIVATE_KEY         = privateKey;
-      process.env.SEPOLIA_RPC_URL         = sepoliaRpc;
-      process.env.PAYMASTER_ADDRESS       = paymaster;
-      process.env.SUBNAME_REGISTRAR_ADDRESS = ensRegistrar;
-      process.env.MEMORY_REGISTRY_ADDRESS = registry;
-      process.env.ZG_RPC_URL              = zgRpc;
-      process.env.INFT_CONTRACT_ADDRESS   = inftAddr;
-      process.env.KEEPER_API_KEY          = keeperKey;
-      try {
-        await cmdEnsRegister(project_id, brainLabel, selectedBrain?.tokenId);
-        persistEnv({
-          BRAIN_ENS_REGISTERED: "true",
-          BRAIN_ENS_MODE: "own"
-        });
-      } catch (err) {
-        warn(`Registration failed: ${err}`);
-        info(`Fund your wallet and run manually: 0mcp ens register ${project_id} ${brainLabel}`);
-      }
-    } else {
-      info(`You can register your brain identity manually later: 0mcp ens register ${project_id} ${brainLabel}`);
-    }
-  }
+  ok(".env.0mcp written.");
 
   nl();
   out(c.bold("  Next steps:"));
-  bull("Get 0G testnet tokens     → https://faucet.0g.ai");
-  bull("Check health              → 0mcp health");
-  bull("Connect IDE MCP           → Check INSTALLATION.md for your IDE");
+  bull(`Fund wallet with 0G tokens → https://faucet.0g.ai`);
+  bull(`Check health              → 0mcp health`);
+  if (brainLabel) {
+    bull(`Register ENS Brain        → 0mcp ens register ${project_id} ${brainLabel}`);
+  }
+  bull(`Run demo                  → 0mcp demo`);
   nl();
 }
 
@@ -512,7 +362,6 @@ async function cmdHealth(): Promise<void> {
   info("Checking .env.0mcp configuration…");
   const required: Array<[string, string]> = [
     ["ZG_PRIVATE_KEY",          "0G transactions and ENS writes"],
-    ["KEEPER_API_KEY",          "KeeperHub / exec_onchain"],
   ];
   for (const [key, purpose] of required) {
     const val = process.env[key];
@@ -576,6 +425,7 @@ async function cmdMemoryExport(project: string, flags: Record<string, string | t
 // ── COMMAND: brain mint ───────────────────────────────────────────────────────
 
 async function cmdBrainMint(project: string, flags: Record<string, string | true>): Promise<void> {
+  TxLogger.clear();
   if (!project) { err("Usage: 0mcp brain mint <project-id> [--recipient <wallet>] [--ens <label>]"); process.exit(1); }
 
   let recipient = flag(flags, "recipient") as string | undefined;
@@ -626,6 +476,7 @@ async function cmdBrainMint(project: string, flags: Record<string, string | true
     });
   }
 
+  out(TxLogger.summary());
   nl();
   if (!ensLabel) info("Next: run `0mcp ens register` to create an ENS name for this Brain.");
 }
@@ -712,11 +563,66 @@ async function cmdBrainStatus(project: string, flags: Record<string, string | tr
 
   header(`BRAIN STATUS — ${project}`);
   out(`    Project:        ${project}`);
-  out(`    Entries:        ${c.bold(String(entries.length))}`);
-  out(`    iNFT contract:  ${inftAddr ? c.green(inftAddr) : c.dim("(not set — deploy contracts/SimpleINFT.sol)")}`);
+  out(`    Entries (local):${c.bold(String(entries.length))}`);
+  out(`    iNFT contract:  ${inftAddr ? c.green(inftAddr) : c.dim("(not set)")}`);
   out(`    ENS name:       ${ensName}${
     brainMode === "own"    ? c.dim(" (yours)") :
     brainMode === "loaded" ? c.dim(" (imported)") : ""}`);
+  
+  // Proactive discovery for iNFTs if local entries are low or contract not showing
+  if (process.env.ZG_PRIVATE_KEY) {
+    const address = new ethers.Wallet(process.env.ZG_PRIVATE_KEY).address;
+    const zgRpc = process.env.ZG_RPC_URL ?? "https://evmrpc-testnet.0g.ai";
+    const zgProvider = new ethers.JsonRpcProvider(zgRpc);
+    const inftContract = new ethers.Contract(inftAddr, [
+      "function balanceOf(address) view returns (uint256)",
+      "function tokenOfOwnerByIndex(address owner, uint256 index) view returns (uint256)",
+      "function tokenURI(uint256 tokenId) view returns (string)"
+    ], zgProvider);
+
+    interface FoundBrain {
+      tokenId: string;
+      projectId: string;
+      entries: number;
+    }
+    const scanned: FoundBrain[] = [];
+
+    try {
+      const bal = await inftContract.balanceOf(address);
+      if (bal > 0n) {
+        nl();
+        out(c.bold(`  🧠 Brain Scanner — Found ${bal} Brain iNFTs on 0G testnet:`));
+        for (let i = 0; i < Number(bal); i++) {
+          const tid = await inftContract.tokenOfOwnerByIndex(address, i);
+          const uri = await inftContract.tokenURI(tid);
+          const b64 = uri.match(/^data:application\/json;base64,(.+)$/);
+          if (b64) {
+            const json = JSON.parse(Buffer.from(b64[1], "base64").toString("utf8"));
+            const pId = json.project_id || "unnamed";
+            scanned.push({ tokenId: tid.toString(), projectId: pId, entries: json.entry_count });
+            out(`    ${c.cyan(`[${i + 1}]`)} ${c.bold(pId.padEnd(20))} ${c.dim(`(Token: ${tid}, Entries: ${json.entry_count})`)}`);
+          }
+        }
+        nl();
+        const loadChoice = await prompt("Select a brain to LOAD into this project, or 'n' to skip", "n");
+        if (loadChoice.toLowerCase() !== "n") {
+          const idx = parseInt(loadChoice, 10) - 1;
+          const chosen = scanned[idx];
+          if (chosen) {
+            // Need to find if it has an ENS name. We'll try to resolve it via owner lookup or let user type.
+            const lookup = await lookupPrimaryBrain(address);
+            let targetName = lookup || "";
+            if (!targetName || !targetName.includes(chosen.projectId.toLowerCase())) {
+               targetName = await prompt(`Enter ENS name for ${chosen.projectId} to load (e.g. name.0mcp.eth)`, `${chosen.projectId.toLowerCase()}.0mcp.eth`);
+            }
+            
+            await cmdBrainLoad(targetName, { into: project });
+          }
+        }
+      }
+    } catch { /* ignore */ }
+  }
+
   out(`    Storage:        ${c.green("0G Galileo testnet")}`);
   nl();
 }
@@ -724,6 +630,7 @@ async function cmdBrainStatus(project: string, flags: Record<string, string | tr
 // ── COMMAND: ens register ─────────────────────────────────────────────────────
 
 async function cmdEnsRegister(project: string, label: string, tokenIdOverride?: string): Promise<void> {
+  TxLogger.clear();
   if (!project || !label) { err("Usage: 0mcp ens register <project-id> <label> [token-id]"); process.exit(1); }
 
   header(`ENS REGISTER — ${label}.0mcp.eth`);
@@ -757,12 +664,14 @@ async function cmdEnsRegister(project: string, label: string, tokenIdOverride?: 
   info("Next steps:");
   bull(`Mint iNFT:         0mcp brain mint ${project}`);
   bull(`Share with others: 0mcp brain share ${project}`);
+  out(TxLogger.summary());
   nl();
 }
 
 // ── COMMAND: ens rename ───────────────────────────────────────────────────────
 
 async function cmdEnsRename(oldName: string, newLabel: string): Promise<void> {
+  TxLogger.clear();
   if (!oldName || !newLabel) { err("Usage: 0mcp ens rename <old-name> <new-label>"); process.exit(1); }
 
   header(`ENS RENAME — ${oldName} → ${newLabel}.0mcp.eth`);
@@ -782,6 +691,7 @@ async function cmdEnsRename(oldName: string, newLabel: string): Promise<void> {
     BRAIN_ENS_LABEL: newLabel,
     BRAIN_ENS_MODE: "own"
   });
+  out(TxLogger.summary());
   nl();
 }
 
@@ -810,6 +720,7 @@ async function cmdEnsResolve(ensName: string, flags: Record<string, string | tru
 // ── COMMAND: ens issue ────────────────────────────────────────────────────────
 
 async function cmdEnsIssue(brainEns: string, renterAddr: string): Promise<void> {
+  TxLogger.clear();
   if (!brainEns || !renterAddr) { err("Usage: 0mcp ens issue <brain-ens> <renter-addr>"); process.exit(1); }
 
   header("ENS RENTAL — ISSUE");
@@ -826,6 +737,7 @@ async function cmdEnsIssue(brainEns: string, renterAddr: string): Promise<void> 
   nl();
   info("Renter can verify access with:");
   bull(`0mcp ens verify ${subname}`);
+  out(TxLogger.summary());
   nl();
 }
 
@@ -916,157 +828,6 @@ async function cmdInftStatus(contractAddr: string, tokenId: string, flags: Recor
 
 // ── COMMAND: demo ─────────────────────────────────────────────────────────────
 
-async function cmdDemo(flags: Record<string, string | true>): Promise<void> {
-  const projectId = flag(flags, "project") ?? "ethglobal-0mcp-demo";
-
-  const { checkStorageHealth, saveMemory, loadAllEntries } = await import("./storage.js");
-  const { buildContext } = await import("./context.js");
-  const { exportSnapshot } = await import("./snapshot.js");
-  const { extractKeywords } = await import("./utils.js");
-
-  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-  nl();
-  out(c.bold(c.cyan("  🧠 0MCP — 5-Act Live Demo")));
-  out(c.dim(`  Storage: 0G Galileo Testnet | Project: ${projectId}`));
-  nl();
-
-  // Preflight
-  info("Checking 0G connectivity before demo…");
-  const health = await checkStorageHealth();
-  if (!health.kvHealthy || !health.indexerHealthy) {
-    err("0G backend is not healthy. Run `0mcp health` to diagnose.");
-    health.issues.forEach((i) => warn(i));
-    process.exit(1);
-  }
-  ok(`0G backend healthy | Indexer: ${health.indexerEndpoint}`);
-  nl();
-
-  const seedEntries = [
-    {
-      prompt: "How do I prevent reentrancy attacks in Solidity?",
-      response: "Use checks-effects-interactions pattern. Apply ReentrancyGuard from OpenZeppelin. Add nonReentrant modifier to all public payable functions.",
-      file_paths: ["contracts/Vault.sol", "contracts/interfaces/IVault.sol"],
-      tags: ["reentrancy", "security", "solidity", "openzeppelin"],
-    },
-    {
-      prompt: "Gas optimisation for our ERC-20 token balances mapping",
-      response: "Pack the balances mapping tightly. Use uint128 instead of uint256 if max supply < 2^128. Use custom errors instead of require strings (saves ~50 gas each). Consider ERC-20 Permit (EIP-2612).",
-      file_paths: ["contracts/Token.sol"],
-      tags: ["gas", "erc20", "optimisation", "solidity"],
-    },
-    {
-      prompt: "Best practices for proxy upgradeable contracts",
-      response: "Use OpenZeppelin UUPS or Transparent proxy. Never initialize in constructor — use initializer functions. Keep storage layout stable (append-only). Use @openzeppelin/hardhat-upgrades to validate. Store implementation address in EIP-1967 slot.",
-      file_paths: ["contracts/ProxyVault.sol", "scripts/deploy.ts"],
-      tags: ["proxy", "upgradeable", "uups", "eip1967", "solidity"],
-    },
-  ];
-
-  // ACT 1
-  header("ACT 1: WITHOUT 0MCP MEMORY");
-  const question = "How do I secure this Solidity vault contract?";
-  bull(`Question: "${question}"`);
-  bull("Checking 0G memory…");
-  await sleep(800);
-  const pre = await buildContext(projectId, question);
-  if (!pre) {
-    ok("No prior context found — generic answer:");
-    nl();
-    out(c.dim('    🤖 "You should look into common Solidity vulnerabilities like reentrancy,'));
-    out(c.dim('       overflow, and access control issues. Consult the OpenZeppelin docs."'));
-    nl();
-    warn("This is what AI gives WITHOUT 0MCP. Vague. Unhelpful.");
-  }
-  await sleep(500);
-
-  // ACT 2
-  header(`ACT 2: SEEDING PROJECT MEMORY → 0G GALILEO TESTNET`);
-  bull(`Project: ${projectId}`);
-  bull(`Saving ${seedEntries.length} Solidity development memories…`);
-  nl();
-  for (let i = 0; i < seedEntries.length; i++) {
-    const e = seedEntries[i];
-    await saveMemory(projectId, { project_id: projectId, ...e, timestamp: Date.now() - (seedEntries.length - i) * 3_600_000 });
-    ok(`Memory ${i + 1}/${seedEntries.length}: "${e.prompt.slice(0, 55)}…"`);
-    bull(`Tags: ${e.tags.join(", ")}`);
-    nl();
-    await sleep(200);
-  }
-  const allE = await loadAllEntries(projectId);
-  ok(`Total entries in 0G: ${allE.length}`);
-  await sleep(500);
-
-  // ACT 3
-  header("ACT 3: WITH 0MCP — CONTEXTUAL RETRIEVAL FROM 0G");
-  bull(`Same question: "${question}"`);
-  bull("Retrieving context from 0G memory…");
-  await sleep(600);
-  const ctx = await buildContext(projectId, question, 3);
-  if (ctx) {
-    ok("Context found! Injecting into agent prompt:");
-    nl();
-    const preview = ctx.split("\n").slice(0, 10).join("\n    ");
-    out(`    ${c.dim(preview)}`);
-    out(c.dim("    …"));
-    nl();
-    ok("Agent now gives a specific, project-aware answer:");
-    nl();
-    out(c.dim('    🤖 "Based on your previous work on Vault.sol, apply ReentrancyGuard'));
-    out(c.dim('       (nonReentrant on withdraw), keep checks-effects-interactions,'));
-    out(c.dim('       and consider UUPS proxy for upgradeability as you discussed."'));
-    nl();
-    warn("Same AI, same question — but WITH 0MCP memory: specific, actionable, project-aware.");
-  }
-  await sleep(500);
-
-  // ACT 4
-  header("ACT 4: BRAIN INFT — EXPORT MEMORY SNAPSHOT");
-  bull("Exporting project memory as portable snapshot…");
-  const snapshot = await exportSnapshot(projectId);
-  ok("Snapshot exported:");
-  bull(`Version:      ${snapshot.version}`);
-  bull(`Project:      ${snapshot.project_id}`);
-  bull(`Entries:      ${snapshot.entry_count}`);
-  bull(`Top keywords: ${snapshot.metadata.top_keywords.slice(0, 5).join(", ")}`);
-  nl();
-  info(`Snapshot JSON: ${JSON.stringify(snapshot).length} chars (stored as base64 data URI in tokenURI)`);
-  if (!process.env.INFT_CONTRACT_ADDRESS) {
-    info("Set INFT_CONTRACT_ADDRESS in .env and run `0mcp brain mint` to mint on 0G testnet.");
-  }
-  await sleep(500);
-
-  // ACT 5
-  header("ACT 5: MEMORY STATS");
-  const dates = allE.map((e) => e.timestamp);
-  const allFiles = [...new Set(allE.flatMap((e) => e.file_paths))];
-  const tagFreq: Record<string, number> = {};
-  allE.flatMap((e) => e.tags).forEach((t) => { tagFreq[t] = (tagFreq[t] ?? 0) + 1; });
-  const topTags = Object.entries(tagFreq).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([t]) => t);
-
-  out(c.bold("  Project Memory Summary:"));
-  bull(`Total interactions stored:  ${allE.length}`);
-  bull(`Unique files referenced:    ${allFiles.length}`);
-  bull(`Top tags:                   ${topTags.join(", ")}`);
-  if (dates.length > 0) {
-    bull(`Memory span:                ${new Date(Math.min(...dates)).toISOString().split("T")[0]} → ${new Date(Math.max(...dates)).toISOString().split("T")[0]}`);
-  }
-  bull(`Storage:                    ${c.green("0G Galileo testnet")}`);
-  nl();
-  out(c.bold("  Sponsor integrations live in this demo:"));
-  bull("0G Foundation  — decentralised memory storage (Turbo) + on-chain root registry");
-  bull("Brain iNFT     — ERC-7857 memory snapshot minting (SimpleINFT.sol)");
-  bull("ENS            — agent identity via 0mcp.eth subnames on Sepolia");
-  bull("KeeperHub      — on-chain execution routing (exec_onchain tool)");
-  bull("Uniswap v4     — rental payment swap (pay_brain_rental tool)");
-  nl();
-  ok("Demo complete.");
-  info("Next: run `0mcp brain mint " + projectId + "` to mint your Brain iNFT on 0G testnet.");
-  nl();
-
-  // Suppress unused import warning (extractKeywords is used in debug mode only)
-  void extractKeywords;
-}
 
 // ── COMMAND: wallet status ────────────────────────────────────────────────────
 
@@ -1083,15 +844,36 @@ async function cmdWalletStatus(flags: Record<string, string | true>): Promise<vo
   const zgRpc  = process.env.ZG_RPC_URL      ?? "https://evmrpc-testnet.0g.ai";
   const sepRpc = process.env.SEPOLIA_RPC_URL  ?? "https://ethereum-sepolia-rpc.publicnode.com";
 
-  const zgProvider  = new ethers.JsonRpcProvider(zgRpc);
-  const sepProvider = new ethers.JsonRpcProvider(sepRpc);
+  const zgChainId = Number(process.env.ZG_CHAIN_ID ?? "16602");
+  const sepChainId = 11155111;
+
+  const zgProvider  = new ethers.JsonRpcProvider(zgRpc, zgChainId, { staticNetwork: true as any });
+  const sepProvider = new ethers.JsonRpcProvider(sepRpc, sepChainId, { staticNetwork: true as any });
 
   info(`Fetching status for ${address}…`);
 
   const { getPaymasterStatus, shouldUsePaymaster } = await import("./paymaster.js");
+  
+  // Helper to fetch balance with timeout and retry
+  const fetchBalance = async (provider: ethers.Provider, addr: string, label: string) => {
+    try {
+      return await withRetry(
+        () => Promise.race([
+          provider.getBalance(addr),
+          new Promise<bigint>((_, reject) => setTimeout(() => reject(new Error(`${label} timeout`)), 10000))
+        ]),
+        2,
+        1000
+      );
+    } catch (e) {
+      warn(`Failed to fetch ${label} balance: ${e instanceof Error ? e.message : String(e)}`);
+      return -1n;
+    }
+  };
+
   const [zgBal, sepBal, pmUse, pmStatus] = await Promise.all([
-    zgProvider.getBalance(address).catch(() => 0n),
-    sepProvider.getBalance(address).catch(() => 0n),
+    fetchBalance(zgProvider, address, "0G"),
+    fetchBalance(sepProvider, address, "Sepolia"),
     shouldUsePaymaster(address).catch(() => false),
     Promise.resolve(getPaymasterStatus()),
   ]);
@@ -1113,8 +895,18 @@ async function cmdWalletStatus(flags: Record<string, string | true>): Promise<vo
   out(`    Address:     ${c.green(address)}`);
   nl();
   out(c.bold("  Balances:"));
-  out(`    ● 0G Galileo:  ${c.cyan(ethers.formatEther(zgBal))} $OG`);
-  out(`    ● Sepolia:     ${c.magenta(ethers.formatEther(sepBal))} $ETH`);
+  
+  const formatBal = (val: bigint, sym: string, label: string) => {
+    if (val === 0n && pmStatus.configured) { // Might be error or 0
+       // If we actually fetched 0n, it returns 0n. 
+       // If it caught an error, it returns 0n but we should ideally know.
+       // Let's refine fetchBalance to return null on error.
+    }
+    return ethers.formatEther(val);
+  };
+
+  out(`    ● 0G Galileo:  ${zgBal === -1n ? c.red("Fetch error") : c.cyan(ethers.formatEther(zgBal))} $OG`);
+  out(`    ● Sepolia:     ${sepBal === -1n ? c.red("Fetch error") : c.magenta(ethers.formatEther(sepBal))} $ETH`);
   nl();
   out(c.bold("  Gas Sponsorship:"));
   if (pmStatus.configured) {
@@ -1156,6 +948,7 @@ async function cmdWalletStatus(flags: Record<string, string | true>): Promise<vo
 // ── COMMAND: wallet send ──────────────────────────────────────────────────────
 
 async function cmdWalletSend(asset: string, recipient: string, amount: string): Promise<void> {
+  TxLogger.clear();
   const assetLow = asset.toLowerCase();
   if (!asset || !recipient || !amount || (assetLow !== "0g" && assetLow !== "eth")) {
     err("Usage: 0mcp wallet send [0g|eth] <recipient> <amount>");
@@ -1197,11 +990,14 @@ async function cmdWalletSend(asset: string, recipient: string, amount: string): 
     info("Waiting for confirmation...");
     await tx.wait();
     ok(`Transaction confirmed! Successfully sent ${c.green(amount)} $${symbol}.`);
+    out(TxLogger.summary());
   } catch (e) {
     err(`Send failed: ${e instanceof Error ? e.message : String(e)}`);
     process.exit(1);
   }
 }
+
+
 
 // ── MAIN ROUTER ───────────────────────────────────────────────────────────────
 
@@ -1284,8 +1080,6 @@ async function main(): Promise<void> {
         flags
       );
 
-    } else if (command === "demo") {
-      await cmdDemo(flags);
 
     } else {
       err(`Unknown command: ${command} ${sub1}`);
