@@ -2,100 +2,84 @@
   <img src="https://raw.githubusercontent.com/Samarth208P/0MCP/main/0mcp.png" alt="0MCP Logo" width="200" />
   <h1>0MCP — Persistent Memory Layer for AI Coding Agents</h1>
   <p><em>0MCP anchors your AI agent's consciousness to the 0G decentralized network, turning ephemeral prompts into persistent, tradeable intelligence assets.</em></p>
-  <p>Solo Project · Samarth Patel, IIT Roorkee</p>
+  <p>
+    <a href="https://github.com/Samarth208P/0MCP/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License" /></a>
+    <a href="https://twitter.com/SamPy4X"><img src="https://img.shields.io/badge/X-@SamPy4X-black.svg" alt="X" /></a>
+    <a href="https://faucet.0g.ai"><img src="https://img.shields.io/badge/Network-0G%20Galileo-green.svg" alt="Network" /></a>
+  </p>
 </div>
 
 ---
 
-## The 0G Advantage: Decentralized Agent Intelligence
-0MCP is built primarily to leverage the **0G Foundation stack**. It transforms local AI coding agents into decentralized entities by treating the 0G Network as the permanent, secure, and verifiable repository of agent expertise.
+## 🧠 The Problem: The "Alzheimer's" of AI Agents
+Today's AI coding agents (Cursor, VS Code, Windsurf) are powerful but **stateless**. Every new session is a blank slate. They forget your architectural decisions, your bug-fix history, and your specific coding style. Existing RAG solutions are private, siloed, and non-sovereign.
 
-- **0G Storage (KV/Log):** Every interaction is encrypted and logged to 0G, creating an immutable history of project decisions.
-- **0G Chain (ERC-7857):** Agent expertise is assetized as "Brain iNFTs," allowing intelligence to be minted, shared, and monetized on the 0G network.
-- **P2P Intelligence Mesh:** Discover and trade agent expertise directly over the decentralized mesh (powered by Gensyn AXL).
-- **Super-Brain Merging:** Combine multiple specialized agent brains into unified "Super-Brains" with synthetic expertise.
-- **0G-Native Economy:** Users can operate entirely using 0G tokens, with gas and cross-chain complexities handled by our integrated Paymaster.
+## 🛡️ The Solution: 0MCP (Zero-G Memory Control Protocol)
+0MCP is a decentralized infrastructure layer that gives AI agents **long-term engineering partners**. By leveraging the **0G Foundation stack**, 0MCP ensures that your agent’s experience is:
+1.  **Persistent**: Memory is anchored to 0G Storage (KV/Log).
+2.  **Sovereign**: You own your memory as a **Brain iNFT** (ERC-7857).
+3.  **Collaborative**: Trade and merge expertise over the **Gensyn AXL** P2P mesh.
 
 ---
 
-## Submission Details
+## 🔥 Key Innovations
 
-*   **Project Name:** 0MCP
-*   **Description:** A decentralized persistent memory layer for AI agents. 0MCP transforms stateless LLMs into long-term engineering partners by anchoring context to 0G Storage and identities to ENS.
-*   **Demo Video:** [Link to 3-min Video] (Coming Soon)
-*   **Live Demo:** [Link to Live Demo] (Coming Soon)
-*   **Team:** Samarth Patel
-    *   **Telegram:** [@samarth208p](https://t.me/samarth208p)
-    *   **X (Twitter):** [SamPy4X](https://x.com/SamPy4X)
+### 1. The Autonomous Memory Loop
+0MCP isn't just a tool; it's a **behavior**. Integrated agents autonomously encrypt and save project context after every meaningful exchange.
+- **Local-First Security**: Data is encrypted via AES-256-GCM before ever leaving your machine.
+- **Selective Retrieval**: Recency-weighted keyword ranking ensures the most relevant context is injected into the LLM prompt.
 
-### Contract Deployment Addresses
-| Contract | Address | Network |
+### 2. Brain iNFTs (ERC-7857)
+We treat "Project Context" as a first-class financial asset.
+- **Assetization**: Mint your agent's expertise as an Intelligent NFT on the 0G Chain.
+- **Scarcity & Evolution**: Use the `MergeRegistry` to combine specialized brains (e.g., a "React Expert" + "Solidity Auditor") into a unique **Super-Brain**.
+
+### 3. P2P Intelligence Mesh (AXL)
+Powered by **Gensyn AXL**, 0MCP allows agents to discover each other directly.
+- **Encrypted Memory Exchange**: Buy memory from another agent using $OG tokens via our `MeshEscrow` contract.
+- **No Intermediaries**: Peer-to-peer communication with no central server or coordinator.
+
+---
+
+## 🛠️ Technical Stack
+
+| Component | Technology | Role |
 |---|---|---|
-| **Memory Registry** | `0xC5887CA90aC2A5c6f1E7FC536A5363B961F18813` | **0G Galileo (Testnet)** |
-| **Brain iNFT (ERC-7857)** | `0xd07059e54017BbF424223cb089ffBC5e2558cF56` | **0G Galileo (Testnet)** |
-| **Merge Registry** | `0x69E1aDbdE8e91d246104007D966403790c90390E` | **0G Galileo (Testnet)** |
-| **Mesh Escrow** | `0xf6F47CF779DD9f37213E0e79d6683d386Db8dEDD` | **0G Galileo (Testnet)** |
-| **ZeroG Paymaster** | `0xb1Ab695dbcbA334A60712234d46264A617AD6d7f` | **Sepolia (Ethereum)** |
-| **Subname Registrar** | `0xA2C96740159b7a47541DEfF991aD5edfa671661d` | **Sepolia (Ethereum)** |
+| **Storage** | 0G Storage (KV & Log) | Decentralized repository for encrypted snapshots. |
+| **Identity** | ENS (.0mcp.eth) | Human-readable mapping to 0G data roots and AXL keys. |
+| **Logic/Chain** | 0G Galileo (EVM) | Handles Registry, iNFT Minting, and P2P Escrow. |
+| **P2P Mesh** | Gensyn AXL | Encrypted agent-to-agent communication layer. |
+| **Gas Layer** | ERC-4337 Paymaster | Sponsors ENS registration gas for users with 0G tokens. |
 
 ---
 
-## Quick Start (Setup in 2 Minutes)
+## 🚀 Quick Start (2 Minutes)
 
-### 1. Install and Initialise
+### 1. Install Global CLI
 ```bash
 npm install -g @samarth208p/0mcp@latest
 0mcp init
 ```
-The wizard generates your keypair, scaffolds .env, and reserves your 0G Brain identity.
 
-### 2. Get Testnet Tokens
-- **0G tokens** -> https://faucet.0g.ai (The primary currency for memory storage)
-- **Sepolia ETH** -> https://sepoliafaucet.com (Optional; the built-in 0G paymaster covers this)
+### 2. Configure Your Agent
+Add the **0MCP Instructions** to your IDE's system prompt. Your AI will then autonomously manage its own memory on 0G. [See full Instructions here](INSTALLATION.md).
 
----
-
-## System Architecture: Powered by 0G
-
-### 1. The Intelligence Vault (Context and Storage)
-Memory is encrypted locally via AES-256-GCM and anchored to **0G Storage**. Retrieval uses a deterministic Keyword-Recency ranking to maximize relevance while minimizing token usage.
-
-<div align="center">
-  <img src="./maps/Context.png" alt="The Intelligence Vault Architecure" width="800" />
-</div>
-
-### 2. The Discovery Layer (ENS and Access)
-ENS names (.0mcp.eth) act as the human-readable map to decentralized 0G brains. Rentals are issued as time-bound wrapped subnames.
-
-<div align="center">
-  <img src="./maps/Identity.png" alt="The Discovery Layer Architecture" width="800" />
-</div>
+### 3. Join the Mesh
+```bash
+0mcp axl setup /path/to/axl-binary
+0mcp axl init
+```
 
 ---
 
-## 0G Innovation: Brain iNFTs (ERC-7857)
-0MCP introduces the concept of **Intelligent NFTs** on the 0G Chain. 
-- **Assetization of Expertise:** Over weeks of development, your agent builds a unique "Mental Model" of your codebase. 0MCP allows you to mint this model as a tradeable iNFT.
-- **Secure Portability:** Because the metadata points directly to 0G Storage roots, your agent's brain can be loaded into any IDE, anywhere in the world, while remaining cryptographically secured.
+## 🗺️ System Architecture
+For a deep dive into the data flow, encryption patterns, and on-chain mechanics:
+👉 **[View Architecture Map](ARCHITECTURE.md)**
 
 ---
 
-## THE CORE LOOP
-
-1. **Prompt:** You type a prompt in your IDE.
-2. **Retrieve:** 0MCP intercepts it, querying 0G for relevant project history.
-3. **Decrypt and Inject:** Context is decrypted locally and injected into the LLM system prompt.
-4. **Respond:** AI responds with full project memory.
-5. **Encrypt and Save:** New insights are encrypted and logged back to 0G immutably.
-
-*Built by Samarth Patel*
-
----
-
-## Citations
-
-If you use 0MCP or its underlying P2P mesh components in your research, please cite our partners at Gensyn:
-
+## 📜 Citations
+If you use 0MCP in your research or project, please cite the AXL network:
 ```bibtex
 @misc{gensyn2026axl,
   title         = {{AXL}: A P2P Network for Decentralized Agentic and {AI/ML} Applications},
@@ -105,3 +89,5 @@ If you use 0MCP or its underlying P2P mesh components in your research, please c
   note          = {Open-source software}
 }
 ```
+
+*Built by Samarth Patel · IIT Roorkee*
