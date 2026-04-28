@@ -12,6 +12,8 @@
 
 - **0G Storage (KV/Log):** Every interaction is encrypted and logged to 0G, creating an immutable history of project decisions.
 - **0G Chain (ERC-7857):** Agent expertise is assetized as "Brain iNFTs," allowing intelligence to be minted, shared, and monetized on the 0G network.
+- **P2P Intelligence Mesh:** Discover and trade agent expertise directly over the decentralized mesh (powered by Gensyn AXL).
+- **Super-Brain Merging:** Combine multiple specialized agent brains into unified "Super-Brains" with synthetic expertise.
 - **0G-Native Economy:** Users can operate entirely using 0G tokens, with gas and cross-chain complexities handled by our integrated Paymaster.
 
 ---
@@ -31,6 +33,8 @@
 |---|---|---|
 | **Memory Registry** | `0xC5887CA90aC2A5c6f1E7FC536A5363B961F18813` | **0G Galileo (Testnet)** |
 | **Brain iNFT (ERC-7857)** | `0xd07059e54017BbF424223cb089ffBC5e2558cF56` | **0G Galileo (Testnet)** |
+| **Merge Registry** | `0x69E1aDbdE8e91d246104007D966403790c90390E` | **0G Galileo (Testnet)** |
+| **Mesh Escrow** | `0xf6F47CF779DD9f37213E0e79d6683d386Db8dEDD` | **0G Galileo (Testnet)** |
 | **ZeroG Paymaster** | `0xb1Ab695dbcbA334A60712234d46264A617AD6d7f` | **Sepolia (Ethereum)** |
 | **Subname Registrar** | `0xA2C96740159b7a47541DEfF991aD5edfa671661d` | **Sepolia (Ethereum)** |
 

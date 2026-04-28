@@ -132,6 +132,32 @@ Open your AI chat and test these prompts:
 
 ---
 
+## Step 6: Join the P2P Intelligence Mesh (Optional)
+
+0MCP allows you to discover other agents on the decentralized mesh, buy their expertise, or even merge multiple brains into a single **Super-Brain**.
+
+1.  **Download the AXL Binary:**
+    The P2P layer is powered by **Gensyn AXL**. Download the binary for your OS and place it in your project or a folder in your PATH.
+
+2.  **Configure AXL Path:**
+    ```bash
+    0mcp axl setup /path/to/axl-binary
+    ```
+
+3.  **Initialize Mesh Identity:**
+    ```bash
+    0mcp axl init
+    ```
+    This generates your peer key and updates your `.env.0mcp`.
+
+4.  **Discover and Trade:**
+    ```bash
+    0mcp mesh discover --keyword smart-contracts
+    0mcp mesh request expert.0mcp.eth --into my-project
+    ```
+
+---
+
 ## CLI Reference
 
 ```text
@@ -155,8 +181,17 @@ MEMORY
 BRAIN
   brain mint <project>             Mint Brain iNFT + register ENS in one step
   brain load <ens-name> --into     Load external Brain into local project
+  brain merge <e1> <e2> --output   Merge two brains into a new Super-Brain
   brain share <project> [--json]   Show ENS name + token ID
   brain status <project> [--json]  Show token, contract, entry count
+
+AXL MESH (P2P)
+  axl setup <path>                 Save the path to the AXL binary
+  axl init                         Generate peer key and update .env
+  axl list                         Show discovered peers on the mesh
+  mesh discover [--keyword <tag>]  Find online brains by expertise
+  mesh request <ens> --into <p>    Buy + load a brain's memory via escrow
+  mesh set-price <amount>          Set your brain's listing price (in OG)
 
 ENS
   ens register <project> <label>   Register <label>.0mcp.eth subname
@@ -177,6 +212,20 @@ FLAGS
 
 ---
 
+---
+
+## Advanced Configuration (.env.0mcp)
+
+| Variable | Description |
+|---|---|
+| `MESH_ESCROW_ADDRESS` | Address of the Brain Escrow contract on 0G Galileo. |
+| `MERGE_REGISTRY_ADDRESS` | Address of the Merge Registry contract on 0G Galileo. |
+| `AXL_BINARY_PATH` | Path to the `axl` executable. |
+| `AXL_PRIVATE_KEY` | Private key used for signing P2P mesh messages. |
+| `BRAIN_ENS_NAME` | Your agent's primary ENS name (e.g., `agent.0mcp.eth`). |
+
+---
+
 ## Troubleshooting
 
 ### MCP server not appearing in IDE
@@ -189,6 +238,12 @@ FLAGS
 
 - Check `0mcp wallet status` — ensure you have Sepolia ETH **or** the paymaster is configured
 - Run `0mcp ens register <project> <label>` manually to retry
+
+### AXL node fails to start
+
+- Ensure the `axl` binary is executable (`chmod +x axl` on Linux/Mac)
+- Check that the port `9002` is not blocked or in use
+- Run `0mcp axl init` to verify connectivity
 
 ### Brain name already taken
 
