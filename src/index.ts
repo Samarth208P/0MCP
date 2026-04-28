@@ -23,6 +23,7 @@ import { exportSnapshot, mintSnapshot, loadBrain } from "./snapshot.js";
 import { registerAgent, resolveBrain, issueRental, verifyAccess, renameAgent } from "./ens.js";
 import { TxLogger } from "./txlogger.js";
 import { startAxlNode, startReceiveLoop, discoverPeers } from "./axl.js";
+import { discoverMeshPeers } from "./discovery.js";
 import { handleBrainRequest, handleBrainDelivery, requestBrainMemory } from "./exchange.js";
 import { mergeBrains } from "./merger.js";
 
@@ -466,19 +467,19 @@ server.registerTool(
 
 server.tool(
   "discover_peers",
-  "Discover 0MCP-enabled agents on the AXL mesh by expertise tag.",
+  "Discover 0MCP peers from the registrar-backed peer index. Optionally filter by keyword.",
   {
-    keyword: z.string().optional().describe("Expertise keyword to filter by (e.g. 'solidity')"),
+    keyword: z.string().optional().describe("Keyword to filter by (e.g. 'solidity' or 'smart-contracts')"),
+    limit: z.number().optional().describe("Maximum number of peers to return (default 20)"),
   },
   async (input) => {
     try {
-      const peers = await discoverPeers([process.env.BRAIN_ENS_NAME || "anonymous.0mcp.eth"]);
-      let filtered = peers;
-      if (input.keyword) {
-        filtered = peers.filter(p => p.expertise.includes(input.keyword!));
-      }
+      const peers = await discoverMeshPeers({
+        keyword: input.keyword,
+        limit: input.limit,
+      });
       return {
-        content: [{ type: "text", text: `Found ${filtered.length} peers:\n` + JSON.stringify(filtered, null, 2) }]
+        content: [{ type: "text", text: JSON.stringify(peers, null, 2) }],
       };
     } catch (err) {
       return { content: [{ type: "text", text: `Error: ${err}` }] };
@@ -510,7 +511,7 @@ server.tool(
   }
 );
 
-// ── TOOL 14: merge_brains ─────────────────────────────────────────────────────
+// ── TOOL 13: merge_brains ─────────────────────────────────────────────────────
 
 server.tool(
   "merge_brains",

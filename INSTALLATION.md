@@ -144,9 +144,92 @@ Open your AI chat and test these prompts:
 
 ---
 
+## AI / LLM Operator Playbook (Recommended)
+
+If you're an AI coding agent (Cursor/VS Code/Cline/etc.) or you're evaluating 0MCP end-to-end, use this section to avoid common pitfalls and to validate the full “happy path” like a real user.
+
+### Security rules (MANDATORY)
+
+- **Never paste or print private keys** in chat logs, issues, PRs, screenshots, or terminal output copied into chat.
+- **Avoid running `0mcp keygen` during evaluations** unless you are in a fully local/private terminal session. It prints a private key + mnemonic to the terminal output.
+- Ensure `.env.0mcp` is ignored by git (and never committed). This repo already intends that, but double-check your own project’s ignore rules.
+
+### Working directory rule (Windows gotcha)
+
+When using the built artifacts locally, run commands from the **repo root**:
+
+```bash
+node build/src/cli.js help
+node build/src/cli.js start
+```
+
+If you run the same command from inside `build/`, Node may look for `build/build/src/cli.js` and fail.
+
+### Safe CLI “smoke tests” (no on-chain writes)
+
+These should succeed even without funds:
+
+```bash
+0mcp help
+0mcp health
+0mcp wallet status --json
+0mcp memory list <project-id> --json
+0mcp inft status <contract> <token-id> --json
+0mcp ens verify <subname> --json
+```
+
+### Full end-user “happy path” validation (does on-chain writes)
+
+This flow validates **0G storage + iNFT mint + ENS registration + brain load**.
+
+1. **Create at least one memory entry** (via your IDE using MCP tools, or any integration that calls `save_memory`).
+2. **Export snapshot**
+
+```bash
+0mcp memory export <project-id> --file build/_snapshot.json
+```
+
+3. **Mint iNFT**
+
+```bash
+0mcp brain mint <project-id> --recipient <0x-wallet>
+```
+
+4. **Register ENS for the minted brain** (recommended: pass the token id)
+
+```bash
+0mcp ens register <project-id> <label> <token-id>
+```
+
+5. **Resolve + load by ENS**
+
+```bash
+0mcp ens resolve <label>.0mcp.eth --json
+0mcp brain load <label>.0mcp.eth --into <project-id>
+```
+
+### AXL mesh: end-user setup + verification
+
+AXL is the P2P layer. A working setup is validated by:
+- `0mcp axl init` succeeds and you can query the local API at `http://127.0.0.1:9002/topology`
+- `0mcp ens register ...` publishes your peer key to ENS (text record `com.0mcp.axl.peer`)
+- `0mcp mesh discover` scans the registrar-backed peer index and returns discoverable peers
+- By default, discovery scans the most recent 1-2 days of blocks; override with `DISCOVERY_START_BLOCK` or `DISCOVERY_LOOKBACK_DAYS`
+
+End-user steps:
+
+```bash
+0mcp axl setup <path-to-axl-binary>
+0mcp axl init
+0mcp ens register <project-id> <label>
+0mcp mesh discover --keyword smart-contracts
+```
+
+---
+
 ## Step 6: Join the P2P Intelligence Mesh (Optional)
 
-0MCP allows you to discover other agents on the decentralized mesh, buy their expertise, or even merge multiple brains into a single **Super-Brain**.
+0MCP allows you to request another agent's memory by ENS, discover peers from the registrar-backed index, buy expertise over the decentralized mesh, or merge multiple brains into a single **Super-Brain**.
 
 1.  **Download the AXL Binary:**
     The P2P layer is powered by **Gensyn AXL**. Download the binary for your OS and place it in your project or a folder in your PATH.
@@ -160,12 +243,13 @@ Open your AI chat and test these prompts:
     ```bash
     0mcp axl init
     ```
-    This generates your peer key and updates your `.env.0mcp`.
+This generates your peer key and updates your `.env.0mcp`.
 
-4.  **Discover and Trade:**
+4.  **Request and Trade:**
     ```bash
     0mcp mesh discover --keyword smart-contracts
     0mcp mesh request expert.0mcp.eth --into my-project
+    0mcp mesh set-price 10
     ```
 
 ---
@@ -183,7 +267,6 @@ SETUP
 WALLET & FUNDS
   wallet status [--json]           Show balances, brain identity, paymaster status
   wallet send <asset> <addr> <amt> Send 0G or ETH to another address (asset: 0g or eth)
-  wallet projects [--json]         List all known projects in storage
   keygen [--save]                  Generate Ethereum keypair (safe offline)
 
 MEMORY
@@ -200,8 +283,7 @@ BRAIN
 AXL MESH (P2P)
   axl setup <path>                 Save the path to the AXL binary
   axl init                         Generate peer key and update .env
-  axl list                         Show discovered peers on the mesh
-  mesh discover [--keyword <tag>]  Find online brains by expertise
+  mesh discover [--keyword <tag>] [--limit <n>] Scan the registrar-backed peer index
   mesh request <ens> --into <p>    Buy + load a brain's memory via escrow
   mesh set-price <amount>          Set your brain's listing price (in OG)
 
@@ -234,6 +316,9 @@ FLAGS
 | `MERGE_REGISTRY_ADDRESS` | Address of the Merge Registry contract on 0G Galileo. |
 | `AXL_BINARY_PATH` | Path to the `axl` executable. |
 | `AXL_PRIVATE_KEY` | Private key used for signing P2P mesh messages. |
+| `MESH_EXPERTISE` | Comma-separated tags published to ENS for mesh discovery (for example `solidity,smart-contracts`). |
+| `DISCOVERY_LOOKBACK_DAYS` | How many recent days of registrar logs to scan when `DISCOVERY_START_BLOCK` is unset (default `2`). |
+| `DISCOVERY_START_BLOCK` | Explicit lower bound for registrar log scanning if you want to pin a known deployment block. |
 | `BRAIN_ENS_NAME` | Your agent's primary ENS name (e.g., `agent.0mcp.eth`). |
 
 ---

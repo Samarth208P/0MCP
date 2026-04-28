@@ -17,6 +17,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { ethers } from "ethers";
 import { lookupPrimaryBrain } from "./ens.js";
+import { discoverMeshPeers } from "./discovery.js";
 import { TxLogger } from "./txlogger.js";
 import { withRetry } from "./utils.js";
 
@@ -167,7 +168,6 @@ function printHelp(): void {
   out(c.bold("  WALLET & FUNDS"));
   row("wallet status [--json]",                     "Show balances, brain identity, paymaster status");
   row("wallet send <asset> <recipient> <amount>",   "Send 0G or ETH to another address (asset: 0g or eth)");
-  row("wallet projects [--json]",                   "List all known projects in storage");
   row("keygen [--save]",                            "Generate Ethereum keypair (safe offline)");
   out("");
   out(c.bold("  MEMORY"));
@@ -184,8 +184,7 @@ function printHelp(): void {
   out(c.bold("  AXL MESH"));
   row("axl setup <path-to-binary>",                 "Save the path to the downloaded AXL binary");
   row("axl init",                                   "Fetch & display your AXL peer key, write to .env");
-  row("axl list",                                   "Show all discovered 0MCP peers on the mesh");
-  row("mesh discover [--keyword <tag>]",            "Find online brains matching expertise tag");
+  row("mesh discover [--keyword <tag>] [--limit <n>]", "Scan the registrar-backed peer index and show peers");
   row("mesh request <ens-name> --into <proj>",      "Buy + load a brain's memory (full payment flow)");
   row("mesh set-price <amount-in-og>",              "Set your brain's listing price on ENS");
   out("");
@@ -306,7 +305,6 @@ SUBNAME_REGISTRAR_ADDRESS=0xA2C96740159b7a47541DEfF991aD5edfa671661d
   if (brainLabel) {
     bull(`Register ENS Brain        → 0mcp ens register ${project_id} ${brainLabel}`);
   }
-  bull(`Run demo                  → 0mcp demo`);
   nl();
 }
 
@@ -835,9 +833,6 @@ async function cmdInftStatus(contractAddr: string, tokenId: string, flags: Recor
   nl();
 }
 
-// ── COMMAND: demo ─────────────────────────────────────────────────────────────
-
-
 // ── COMMAND: wallet status ────────────────────────────────────────────────────
 
 async function cmdWalletStatus(flags: Record<string, string | true>): Promise<void> {
@@ -1033,35 +1028,43 @@ async function cmdAxlInit(): Promise<void> {
   }
 }
 
-// ── COMMAND: axl list ─────────────────────────────────────────────────────────
-
-async function cmdAxlList(): Promise<void> {
-  info("Scanning ENS for AXL peers...");
-  // Stub for listing, would scan a known list of ENS names
-  warn("Discovery requires a list of ENS names to scan. Use mesh discover instead.");
-}
-
 // ── COMMAND: mesh discover ────────────────────────────────────────────────────
 
 async function cmdMeshDiscover(flags: Record<string, string | true>): Promise<void> {
   const keyword = flag(flags, "keyword");
-  info(`Discovering mesh peers${keyword ? ` matching '${keyword}'` : ""}...`);
-  const { discoverPeers } = await import("./axl.js");
-  
-  // Hardcoded for demo, normally we'd query an indexer
-  const knownPeers = [process.env.BRAIN_ENS_NAME || "anonymous.0mcp.eth"]; 
-  const peers = await discoverPeers(knownPeers);
-  
-  if (peers.length === 0) {
-    warn("No peers found.");
+  const limitRaw = flag(flags, "limit");
+  const parsedLimit = limitRaw ? Number(limitRaw) : 20;
+  const limit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? Math.floor(parsedLimit) : 20;
+  const json = hasFlag(flags, "json");
+
+  if (!json) {
+    info(`Scanning the peer index${keyword ? ` for '${keyword}'` : ""}...`);
+  }
+  const peers = await discoverMeshPeers({ keyword: keyword || undefined, limit });
+
+  if (json) {
+    jsonOut(peers);
     return;
   }
-  
-  for (const p of peers) {
-    out(`  🧠 ${c.bold(p.ens_name)}`);
-    out(`      Peer Key: ${c.dim(p.axl_peer_key)}`);
-    out(`      Price:    ${c.green(p.price_og)} $OG`);
-    out(`      Tags:     ${p.expertise.join(", ")}`);
+
+  header("MESH DISCOVERY");
+  if (peers.length === 0) {
+    warn("No peers found in the registrar-backed index.");
+    return;
+  }
+
+  out(c.bold(`  ${peers.length} peer${peers.length === 1 ? "" : "s"} found`));
+  nl();
+  for (const peer of peers) {
+    out(`  ${c.cyan(peer.ens_name)}`);
+    out(`      Label:    ${peer.label}`);
+    out(`      Owner:    ${peer.owner_address}`);
+    out(`      Project:  ${peer.project_id}`);
+    out(`      PeerKey:  ${c.dim(peer.axl_peer_key)}`);
+    out(`      Price:    ${c.green(peer.price_og)} $OG`);
+    out(`      Tags:     ${peer.expertise.length ? peer.expertise.join(", ") : c.dim("none")}`);
+    if (peer.description) out(`      Bio:      ${peer.description}`);
+    nl();
   }
 }
 
@@ -1154,15 +1157,6 @@ async function main(): Promise<void> {
     } else if (command === "wallet" && sub1 === "send") {
       await cmdWalletSend(sub2 || parsed.positional[2] || "", parsed.positional[3] || "", parsed.positional[4] || "");
 
-    } else if (command === "wallet" && sub1 === "projects") {
-      // Stub: in a real implementation this would query the on-chain registry
-      header("PROJECTS INDEX");
-      info("Retrieving project list from 0G Registry…");
-      nl();
-      warn("Scanning not yet supported by standard Registry contract.");
-      bull("Use `0mcp memory list <project-id>` if you know the project ID.");
-      nl();
-
     } else if (command === "memory" && sub1 === "list") {
       await cmdMemoryList(sub2 || parsed.positional[2] || "", flags);
 
@@ -1208,9 +1202,6 @@ async function main(): Promise<void> {
 
     } else if (command === "axl" && sub1 === "init") {
       await cmdAxlInit();
-
-    } else if (command === "axl" && sub1 === "list") {
-      await cmdAxlList();
 
     } else if (command === "mesh" && sub1 === "discover") {
       await cmdMeshDiscover(flags);

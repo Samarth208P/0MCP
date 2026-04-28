@@ -88,7 +88,8 @@ export async function startAxlNode(): Promise<void> {
   
   // We run from the axl directory so relative paths in config work
   const axlDir = path.dirname(binaryPath);
-  axlProcess = spawn(path.basename(binaryPath), ["-config", "node-config.json"], {
+  const command = path.isAbsolute(binaryPath) ? binaryPath : path.basename(binaryPath);
+  axlProcess = spawn(command, ["-config", "node-config.json"], {
     cwd: axlDir,
     stdio: ["ignore", "pipe", "pipe"],
     detached: false

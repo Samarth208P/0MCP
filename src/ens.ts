@@ -232,9 +232,9 @@ async function createOrUpdateSubname(
      throw new Error(`Signer required to register ${childName}.`);
   }
   const signerAddress = await signer.getAddress();
-  if (parentState.effectiveOwner.toLowerCase() !== signerAddress.toLowerCase()) {
-      const registrarAddr = process.env.SUBNAME_REGISTRAR_ADDRESS ?? "0xA2C96740159b7a47541DEfF991aD5edfa671661d";
-    if (registrarAddr) {
+  const registrarAddr = (process.env.SUBNAME_REGISTRAR_ADDRESS ?? "").trim();
+  if (registrarAddr) {
+    try {
       console.error(`\n[ens] Using Public Subname Registrar at ${registrarAddr}`);
       const registrarAbi = ["function register(string label, address newOwner) external"];
       const registrar = new ethers.Contract(registrarAddr, registrarAbi, signer);
@@ -265,12 +265,17 @@ async function createOrUpdateSubname(
         }
       }
       return childName;
-    } else if (parentState.wrapped) {
+    } catch (err) {
+      console.error(`[ens] ⚠️  Registrar path failed for ${childName}, falling back to direct registration: ${err}`);
+    }
+  }
+
+  if (parentState.effectiveOwner.toLowerCase() !== signerAddress.toLowerCase()) {
+    if (parentState.wrapped) {
       console.error(`[ens] ⚠️  No SUBNAME_REGISTRAR_ADDRESS — assuming CCIP off-chain registration`);
       return childName;
-    } else {
-      throw new Error(`Signer does not control parent ENS name ${parentName}. Set SUBNAME_REGISTRAR_ADDRESS or use your own ENS parent.`);
     }
+    throw new Error(`Signer does not control parent ENS name ${parentName}. Set SUBNAME_REGISTRAR_ADDRESS or use your own ENS parent.`);
   }
 
   if (parentState.wrapped) {
@@ -320,6 +325,11 @@ async function setPrimaryName(signer: ethers.Wallet | null, ensName: string): Pr
   } catch (e) {
     console.error(`[ens] ⚠️  Could not set reverse name (expected for off-chain CCIP names): ${e}`);
   }
+}
+
+function getMeshExpertiseRecords(): Array<[string, string]> {
+  const expertise = (process.env.MESH_EXPERTISE ?? process.env.AXL_EXPERTISE ?? "").trim();
+  return expertise ? [["com.0mcp.axl.expertise", expertise]] : [];
 }
 
 /**
@@ -405,6 +415,7 @@ export async function registerAgent(
       ["com.0mcp.agent", project_id],
       ["com.0mcp.description", metadata.description ?? "0MCP Agent"],
       ["com.0mcp.sessions", String(metadata.sessions ?? 0)],
+      ...getMeshExpertiseRecords(),
       ...(metadata.token_id ? [["com.0mcp.brain", String(metadata.token_id)] as [string, string]] : []),
       ...(metadata.contract_address
         ? [["com.0mcp.contract", metadata.contract_address] as [string, string]]
@@ -463,6 +474,7 @@ export async function renameAgent(oldName: string, newLabel: string): Promise<st
       ["com.0mcp.agent", metadata.project_id],
       ["com.0mcp.description", metadata.description ?? "0MCP Agent"],
       ["com.0mcp.sessions", String(metadata.sessions ?? 0)],
+      ...getMeshExpertiseRecords(),
       ...(metadata.token_id != null ? [["com.0mcp.brain", String(metadata.token_id)] as [string, string]] : []),
       ...(metadata.contract_address ? [["com.0mcp.contract", metadata.contract_address] as [string, string]] : [])
     ],
