@@ -97,3 +97,68 @@ export interface ExecResult {
   txHash: string;
   gasUsed?: string;
 }
+
+// ── AXL Mesh message types ────────────────────────────────────────────────────
+
+export type AXLMessageType =
+  | "brain_request"
+  | "brain_offer"
+  | "brain_delivery"
+  | "brain_ack"
+  | "merge_proposal"
+  | "merge_accept"
+  | "discovery_ping"
+  | "discovery_pong";
+
+export interface AXLEnvelope {
+  type: AXLMessageType;
+  from_ens: string;
+  from_peer: string;
+  timestamp: number;
+  nonce: string;
+  payload: Record<string, unknown>;
+  signature: string;
+}
+
+export interface BrainRequestPayload {
+  requested_ens: string;
+  escrow_tx: string;
+  buyer_ens: string;
+  buyer_encryption_pubkey: string;
+  keywords?: string[];
+}
+
+export interface BrainDeliveryPayload {
+  encrypted_snapshot: string;
+  root_hash: string;
+  entry_count: number;
+  seller_ens: string;
+}
+
+export interface MeshPeer {
+  ens_name: string;
+  axl_peer_key: string;
+  expertise: string[];
+  price_og: string;
+  last_seen: number;
+}
+
+export interface MergeResult {
+  synthetic_snapshot: MemorySnapshot;
+  parent_a_ens: string;
+  parent_b_ens: string;
+  merge_tx: string;
+  token_ids: string[];
+}
+
+// ── Payment / Escrow types ────────────────────────────────────────────────────
+
+export interface EscrowState {
+  escrow_id: string;
+  buyer: string;
+  seller: string;
+  amount_wei: string;
+  status: "locked" | "released" | "refunded";
+  locked_at: number;
+  released_at?: number;
+}

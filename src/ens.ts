@@ -412,6 +412,12 @@ export async function registerAgent(
       ...(getInftContractAddress()
         ? [["com.0mcp.contract", getInftContractAddress()] as [string, string]]
         : []),
+      ...(process.env.AXL_PEER_KEY
+        ? [["com.0mcp.axl.peer", process.env.AXL_PEER_KEY] as [string, string]]
+        : []),
+      ...(process.env.MESH_PRICE_OG
+        ? [["com.0mcp.axl.price", process.env.MESH_PRICE_OG] as [string, string]]
+        : []),
     ],
     365
   );

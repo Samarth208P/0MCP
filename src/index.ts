@@ -22,6 +22,12 @@ import { buildContext } from "./context.js";
 import { exportSnapshot, mintSnapshot, loadBrain } from "./snapshot.js";
 import { registerAgent, resolveBrain, issueRental, verifyAccess, renameAgent } from "./ens.js";
 import { TxLogger } from "./txlogger.js";
+import { startAxlNode, startReceiveLoop, discoverPeers } from "./axl.js";
+import { handleBrainRequest, handleBrainDelivery, requestBrainMemory } from "./exchange.js";
+import { mergeBrains } from "./merger.js";
+
+// Ensure environment is loaded before server startup
+loadLocalEnv();
 
 // Redirect console.log → console.error to protect MCP stdio channel
 console.log = function (...args) { console.error(...args); };
@@ -456,13 +462,99 @@ server.registerTool(
   }
 );
 
+// ── TOOL 11: discover_peers ───────────────────────────────────────────────────
+
+server.tool(
+  "discover_peers",
+  "Discover 0MCP-enabled agents on the AXL mesh by expertise tag.",
+  {
+    keyword: z.string().optional().describe("Expertise keyword to filter by (e.g. 'solidity')"),
+  },
+  async (input) => {
+    try {
+      const peers = await discoverPeers([process.env.BRAIN_ENS_NAME || "anonymous.0mcp.eth"]);
+      let filtered = peers;
+      if (input.keyword) {
+        filtered = peers.filter(p => p.expertise.includes(input.keyword!));
+      }
+      return {
+        content: [{ type: "text", text: `Found ${filtered.length} peers:\n` + JSON.stringify(filtered, null, 2) }]
+      };
+    } catch (err) {
+      return { content: [{ type: "text", text: `Error: ${err}` }] };
+    }
+  }
+);
+
+// ── TOOL 12: request_brain_memory ─────────────────────────────────────────────
+
+server.tool(
+  "request_brain_memory",
+  "Pay for and import a remote brain's memory into local project.",
+  {
+    seller_ens: z.string().describe("ENS name of the seller"),
+    into_project: z.string().describe("Local project ID to import into"),
+  },
+  async (input) => {
+    try {
+      const peers = await discoverPeers([input.seller_ens]);
+      if (peers.length === 0) throw new Error("Could not find seller AXL key on ENS");
+      
+      await requestBrainMemory(input.seller_ens, peers[0].axl_peer_key, input.into_project);
+      return {
+        content: [{ type: "text", text: `Successfully requested and imported brain from ${input.seller_ens}` }]
+      };
+    } catch (err) {
+      return { content: [{ type: "text", text: `Error: ${err}` }] };
+    }
+  }
+);
+
+// ── TOOL 14: merge_brains ─────────────────────────────────────────────────────
+
+server.tool(
+  "merge_brains",
+  "Merge two brain iNFTs into a new Super-Brain. If owners differ, mints a copy for both.",
+  {
+    ens_a: z.string().describe("ENS name of first brain"),
+    ens_b: z.string().describe("ENS name of second brain"),
+    output_label: z.string().describe("ENS label for the new combined brain"),
+    criteria: z.array(z.string()).optional().describe("Tags to prioritize during merge"),
+  },
+  async (input) => {
+    try {
+      const res = await mergeBrains(input.ens_a, input.ens_b, input.output_label, { criteriaTags: input.criteria });
+      return {
+        content: [{ type: "text", text: `Merge complete! ${res.synthetic_snapshot.entry_count} entries. New ENS: ${input.output_label}.0mcp.eth` }]
+      };
+    } catch (err) {
+      return { content: [{ type: "text", text: `Error: ${err}` }] };
+    }
+  }
+);
+
 // ── Start ─────────────────────────────────────────────────────────────────────
 
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
   console.error("0MCP server running on stdio — ready for IDE connection");
-  console.error("Tools: get_context, save_memory, export_snapshot, mint_brain, load_brain, register_agent, rename_agent, resolve_brain, issue_rental, verify_access, send_funds");
+  console.error("Tools: get_context, save_memory, export_snapshot, mint_brain, load_brain, register_agent, rename_agent, resolve_brain, issue_rental, verify_access, send_funds, discover_peers, request_brain_memory, merge_brains");
+
+  if (process.env.AXL_BINARY_PATH || process.env.AXL_PEER_KEY) {
+    try {
+      await startAxlNode();
+      startReceiveLoop(async (envelope) => {
+        if (envelope.type === "brain_request") {
+          await handleBrainRequest(envelope);
+        } else if (envelope.type === "brain_delivery") {
+          await handleBrainDelivery(envelope);
+        }
+      });
+    } catch (err) {
+      console.error("[axl] Failed to auto-start AXL loop:", err);
+    }
+  }
 }
 
 main().catch(console.error);

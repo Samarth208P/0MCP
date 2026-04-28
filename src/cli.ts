@@ -177,8 +177,17 @@ function printHelp(): void {
   out(c.bold("  BRAIN"));
   row("brain mint <project-id> [--recipient <addr>] [--ens <label>]", "Mint Brain iNFT + register ENS in one step");
   row("brain load <ens-name> --into <project-id>",     "Load external Brain into local project");
+  row("brain merge <ens1> <ens2> --output <label>",    "Merge two brains into a new Super-Brain");
   row("brain share <project-id> [--json]",             "Show ENS name + token ID");
   row("brain status <project-id> [--json]",            "Show token, contract, entry count");
+  out("");
+  out(c.bold("  AXL MESH"));
+  row("axl setup <path-to-binary>",                 "Save the path to the downloaded AXL binary");
+  row("axl init",                                   "Fetch & display your AXL peer key, write to .env");
+  row("axl list",                                   "Show all discovered 0MCP peers on the mesh");
+  row("mesh discover [--keyword <tag>]",            "Find online brains matching expertise tag");
+  row("mesh request <ens-name> --into <proj>",      "Buy + load a brain's memory (full payment flow)");
+  row("mesh set-price <amount-in-og>",              "Set your brain's listing price on ENS");
   out("");
   out(c.bold("  ENS"));
   row("ens register <project-id> <label>",          "Register <label>.0mcp.eth subname");
@@ -999,6 +1008,120 @@ async function cmdWalletSend(asset: string, recipient: string, amount: string): 
 
 
 
+// ── COMMAND: axl setup ────────────────────────────────────────────────────────
+
+async function cmdAxlSetup(path: string): Promise<void> {
+  if (!path) { err("Usage: 0mcp axl setup <path-to-binary>"); process.exit(1); }
+  persistEnv({ AXL_BINARY_PATH: path });
+  ok(`AXL binary path saved: ${path}`);
+}
+
+// ── COMMAND: axl init ─────────────────────────────────────────────────────────
+
+async function cmdAxlInit(): Promise<void> {
+  info("Starting AXL node to fetch peer key...");
+  const { startAxlNode, getLocalPeerKey, stopAxlNode } = await import("./axl.js");
+  try {
+    await startAxlNode();
+    const peerKey = await getLocalPeerKey();
+    persistEnv({ AXL_PEER_KEY: peerKey });
+    ok(`AXL initialized. Your Peer Key is: ${c.bold(peerKey)}`);
+  } catch(e) {
+    err(`Failed to initialize AXL: ${e}`);
+  } finally {
+    stopAxlNode();
+  }
+}
+
+// ── COMMAND: axl list ─────────────────────────────────────────────────────────
+
+async function cmdAxlList(): Promise<void> {
+  info("Scanning ENS for AXL peers...");
+  // Stub for listing, would scan a known list of ENS names
+  warn("Discovery requires a list of ENS names to scan. Use mesh discover instead.");
+}
+
+// ── COMMAND: mesh discover ────────────────────────────────────────────────────
+
+async function cmdMeshDiscover(flags: Record<string, string | true>): Promise<void> {
+  const keyword = flag(flags, "keyword");
+  info(`Discovering mesh peers${keyword ? ` matching '${keyword}'` : ""}...`);
+  const { discoverPeers } = await import("./axl.js");
+  
+  // Hardcoded for demo, normally we'd query an indexer
+  const knownPeers = [process.env.BRAIN_ENS_NAME || "anonymous.0mcp.eth"]; 
+  const peers = await discoverPeers(knownPeers);
+  
+  if (peers.length === 0) {
+    warn("No peers found.");
+    return;
+  }
+  
+  for (const p of peers) {
+    out(`  🧠 ${c.bold(p.ens_name)}`);
+    out(`      Peer Key: ${c.dim(p.axl_peer_key)}`);
+    out(`      Price:    ${c.green(p.price_og)} $OG`);
+    out(`      Tags:     ${p.expertise.join(", ")}`);
+  }
+}
+
+// ── COMMAND: mesh request ─────────────────────────────────────────────────────
+
+async function cmdMeshRequest(ensName: string, flags: Record<string, string | true>): Promise<void> {
+  if (!ensName) { err("Usage: 0mcp mesh request <ens-name> --into <project-id>"); process.exit(1); }
+  const intoProject = flag(flags, "into");
+  if (!intoProject) { err("--into <project-id> is required"); process.exit(1); }
+  
+  info(`Requesting brain from ${ensName}...`);
+  const { discoverPeers, startAxlNode } = await import("./axl.js");
+  const { requestBrainMemory } = await import("./exchange.js");
+  
+  const peers = await discoverPeers([ensName]);
+  if (peers.length === 0) {
+    err(`Could not resolve AXL peer key for ${ensName}`);
+    process.exit(1);
+  }
+  
+  await startAxlNode();
+  try {
+    await requestBrainMemory(ensName, peers[0].axl_peer_key, intoProject);
+    ok(`Successfully requested and imported brain ${ensName}`);
+  } catch(e) {
+    err(`Request failed: ${e}`);
+  }
+}
+
+// ── COMMAND: mesh set-price ───────────────────────────────────────────────────
+
+async function cmdMeshSetPrice(price: string): Promise<void> {
+  if (!price) { err("Usage: 0mcp mesh set-price <amount-in-og>"); process.exit(1); }
+  persistEnv({ MESH_PRICE_OG: price });
+  ok(`Price set to ${price} $OG. Run '0mcp ens register' to publish it.`);
+}
+
+// ── COMMAND: brain merge ──────────────────────────────────────────────────────
+
+async function cmdBrainMerge(ensA: string, ensB: string, flags: Record<string, string | true>): Promise<void> {
+  if (!ensA || !ensB) { err("Usage: 0mcp brain merge <ens1> <ens2> --output <label>"); process.exit(1); }
+  const output = flag(flags, "output");
+  if (!output) { err("--output <label> is required"); process.exit(1); }
+  
+  const criteria = flag(flags, "criteria");
+  const criteriaTags = criteria ? criteria.split(",").map(s => s.trim()) : [];
+  
+  info(`Merging ${ensA} and ${ensB} into ${output}.0mcp.eth...`);
+  const { mergeBrains } = await import("./merger.js");
+  
+  try {
+    const res = await mergeBrains(ensA, ensB, output, { criteriaTags });
+    ok(`Merge complete!`);
+    out(`    Entries: ${res.synthetic_snapshot.entry_count}`);
+    out(`    Copies:  ${res.token_ids.length}`);
+  } catch(e) {
+    err(`Merge failed: ${e}`);
+  }
+}
+
 // ── MAIN ROUTER ───────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
@@ -1080,6 +1203,26 @@ async function main(): Promise<void> {
         flags
       );
 
+    } else if (command === "axl" && sub1 === "setup") {
+      await cmdAxlSetup(sub2 || parsed.positional[2] || "");
+
+    } else if (command === "axl" && sub1 === "init") {
+      await cmdAxlInit();
+
+    } else if (command === "axl" && sub1 === "list") {
+      await cmdAxlList();
+
+    } else if (command === "mesh" && sub1 === "discover") {
+      await cmdMeshDiscover(flags);
+
+    } else if (command === "mesh" && sub1 === "request") {
+      await cmdMeshRequest(sub2 || parsed.positional[2] || "", flags);
+
+    } else if (command === "mesh" && sub1 === "set-price") {
+      await cmdMeshSetPrice(sub2 || parsed.positional[2] || "");
+
+    } else if (command === "brain" && sub1 === "merge") {
+      await cmdBrainMerge(sub2 || parsed.positional[2] || "", parsed.positional[3] || "", flags);
 
     } else {
       err(`Unknown command: ${command} ${sub1}`);
