@@ -293,18 +293,70 @@ async function cmdInit(): Promise<void> {
   const existingBrain = await lookupPrimaryBrain(address);
   if (existingBrain) {
     suggestedBrain = existingBrain.replace(".0mcp.eth", "");
-    ok(`Found existing Brain on ENS: ${c.cyan(existingBrain)}`);
+    ok(`Found primary Brain on ENS: ${c.cyan(existingBrain)}`);
   }
 
-  // Also check 0G iNFT balance
+  // Also check 0G iNFT balance and details
   const zgProvider = new ethers.JsonRpcProvider(zgRpc);
-  const inftContract = new ethers.Contract(inftAddr, ["function balanceOf(address) view returns (uint256)"], zgProvider);
+  const inftContract = new ethers.Contract(inftAddr, [
+    "function balanceOf(address) view returns (uint256)",
+    "function tokenOfOwnerByIndex(address owner, uint256 index) view returns (uint256)",
+    "function tokenURI(uint256 tokenId) view returns (string)"
+  ], zgProvider);
+
+  interface BrainChoice {
+    tokenId: string;
+    label: string;
+    entries: number;
+    keywords: string[];
+  }
+
+  const foundBrains: BrainChoice[] = [];
+
   try {
     const inftBal = await inftContract.balanceOf(address);
     if (inftBal > 0n) {
-      ok(`Found ${inftBal} Brain iNFT(s) on 0G Galileo testnet.`);
+      info(`Found ${inftBal} Brain iNFT(s) on 0G Galileo testnet.`);
+      for (let i = 0; i < Number(inftBal); i++) {
+        try {
+          const tokenId = await inftContract.tokenOfOwnerByIndex(address, i);
+          const uri = await inftContract.tokenURI(tokenId);
+          const b64Match = uri.match(/^data:application\/json;base64,(.+)$/);
+          if (b64Match) {
+            const json = JSON.parse(Buffer.from(b64Match[1], "base64").toString("utf8"));
+            foundBrains.push({
+              tokenId: tokenId.toString(),
+              label: json.project_id || `Brain #${tokenId}`,
+              entries: json.entry_count || 0,
+              keywords: json.metadata?.top_keywords?.slice(0, 3) || []
+            });
+          }
+        } catch { /* skip failed decodes */ }
+      }
     }
-  } catch (err) { /* ignore */ }
+  } catch (err) { /* ignore RPC errors during probe */ }
+
+  let selectedBrain: BrainChoice | null = null;
+  if (foundBrains.length > 0) {
+    nl();
+    out(c.bold("  Existing Brain iNFTs found:"));
+    foundBrains.forEach((b, i) => {
+      out(`    ${c.cyan(`[${i + 1}]`)} ${c.bold(b.label.padEnd(20))} ${c.dim(`(Token: ${b.tokenId}, Entries: ${b.entries})`)}`);
+      if (b.keywords.length > 0) out(`        ${c.dim(`Keywords: ${b.keywords.join(", ")}`)}`);
+    });
+    out(`    ${c.cyan(`[n]`)} ${c.dim("Create a brand new brain")}`);
+    nl();
+
+    const choice = await prompt("Select a Brain to use, or 'n' for new", "1");
+    if (choice.toLowerCase() !== "n") {
+      const idx = parseInt(choice, 10) - 1;
+      if (foundBrains[idx]) {
+        selectedBrain = foundBrains[idx];
+        suggestedBrain = selectedBrain.label;
+        ok(`Using existing Brain: ${c.bold(selectedBrain.label)} (#${selectedBrain.tokenId})`);
+      }
+    }
+  }
 
   const brainNameInput = await prompt(
     `Your Brain name (e.g. 'sampy' — will become sampy.0mcp.eth)${suggestedBrain ? ` [${suggestedBrain}]` : ""}`,
@@ -377,7 +429,7 @@ KEEPER_API_KEY=${keeperKey}
       process.env.INFT_CONTRACT_ADDRESS   = inftAddr;
       process.env.KEEPER_API_KEY          = keeperKey;
       try {
-        await cmdEnsRegister(project_id, brainLabel);
+        await cmdEnsRegister(project_id, brainLabel, selectedBrain?.tokenId);
         persistEnv({
           BRAIN_ENS_REGISTERED: "true",
           BRAIN_ENS_MODE: "own"
@@ -671,12 +723,13 @@ async function cmdBrainStatus(project: string, flags: Record<string, string | tr
 
 // ── COMMAND: ens register ─────────────────────────────────────────────────────
 
-async function cmdEnsRegister(project: string, label: string): Promise<void> {
-  if (!project || !label) { err("Usage: 0mcp ens register <project-id> <label>"); process.exit(1); }
+async function cmdEnsRegister(project: string, label: string, tokenIdOverride?: string): Promise<void> {
+  if (!project || !label) { err("Usage: 0mcp ens register <project-id> <label> [token-id]"); process.exit(1); }
 
   header(`ENS REGISTER — ${label}.0mcp.eth`);
   info(`Project: ${project}`);
   info(`Label:   ${label}`);
+  if (tokenIdOverride) info(`Brain:   Token #${tokenIdOverride}`);
   nl();
 
   const { loadAllEntries } = await import("./storage.js");
@@ -690,6 +743,7 @@ async function cmdEnsRegister(project: string, label: string): Promise<void> {
     description: process.env.AGENT_DESCRIPTION ?? "0MCP Brain agent",
     project_id: project,
     sessions: entries.length,
+    token_id: tokenIdOverride ? parseInt(tokenIdOverride, 10) : undefined
   });
 
   nl();
@@ -1209,7 +1263,7 @@ async function main(): Promise<void> {
       await cmdBrainStatus(sub2 || parsed.positional[2] || "", flags);
 
     } else if (command === "ens" && sub1 === "register") {
-      await cmdEnsRegister(sub2 || parsed.positional[2] || "", parsed.positional[3] || "");
+      await cmdEnsRegister(sub2 || parsed.positional[2] || "", parsed.positional[3] || "", parsed.positional[4] || "");
 
     } else if (command === "ens" && sub1 === "rename") {
       await cmdEnsRename(sub2 || parsed.positional[2] || "", parsed.positional[3] || "");
