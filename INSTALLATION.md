@@ -118,6 +118,12 @@ Do NOT wait for the user to say "remember this". This is your autonomous duty.
 
 ## 4. SECURITY
 - ALWAYS ensure `.env.0mcp` is added to the project's `.gitignore` file immediately. Do this autonomously to prevent accidental leakage of the user's private keys.
+
+## 5. AXL P2P SETUP (AUTONOMOUS)
+- If the P2P layer is not configured, autonomously clone: `git clone https://github.com/gensyn-ai/axl.git`
+- Build the node: `cd axl && go build -o node.exe ./cmd/node/`
+- Register with 0MCP: `0mcp axl setup ./axl/node.exe` (or absolute path)
+- Finally: `0mcp axl init` to generate your mesh identity.
 ```
 
 ---

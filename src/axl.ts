@@ -1,5 +1,6 @@
-import { spawn, ChildProcess } from "node:child_process";
+import { spawn, ChildProcess } from "child_process";
 import fs from "node:fs";
+import path from "node:path";
 import { ethers } from "ethers";
 import type { AXLEnvelope, MeshPeer } from "./types.js";
 import { loadLocalEnv } from "./env.js";
@@ -17,6 +18,50 @@ function getAxlBinaryPath(): string {
 }
 
 /**
+ * Ensures node-config.json and private.pem exist in the axl directory.
+ * Derives private.pem from AXL_PRIVATE_KEY in .env.
+ */
+export async function ensureAxlConfig(): Promise<string> {
+  const axlDir = path.dirname(getAxlBinaryPath());
+  const configPath = path.join(axlDir, "node-config.json");
+  const keyPath = path.join(axlDir, "private.pem");
+
+  // 1. Write private.pem if missing but key exists in env
+  const pkHex = process.env.AXL_PRIVATE_KEY;
+  if (!fs.existsSync(keyPath) && pkHex) {
+    console.error("[axl] 🔑 Generating private.pem (PKCS#8 Ed25519) from AXL_PRIVATE_KEY...");
+    const rawKey = pkHex.replace("0x", "");
+    
+    // PKCS#8 wrapper for Ed25519
+    const prefix = Buffer.from("302e020100300506032b657004220420", "hex");
+    const keyBuf = Buffer.from(rawKey, "hex");
+    
+    const pkcs8 = Buffer.concat([prefix, keyBuf]);
+    const b64 = pkcs8.toString("base64");
+    
+    const pem = `-----BEGIN PRIVATE KEY-----\n${b64}\n-----END PRIVATE KEY-----`;
+    fs.writeFileSync(keyPath, pem);
+  }
+
+  // 2. Generate node-config.json if missing
+  if (!fs.existsSync(configPath)) {
+    console.error("[axl] 📝 Generating default node-config.json...");
+    const defaultConfig = {
+      PrivateKeyPath: "private.pem",
+      Peers: [
+        "tls://axl-seed.0mcp.eth:9001", // Placeholder seed
+        "tls://167.99.137.200:9001"    // Public community bootstrap node
+      ],
+      Listen: ["tls://0.0.0.0:9001"],
+      HttpListen: "127.0.0.1:9002"
+    };
+    fs.writeFileSync(configPath, JSON.stringify(defaultConfig, null, 2));
+  }
+
+  return configPath;
+}
+
+/**
  * Spawns the AXL binary in the background if it's not already running.
  */
 export async function startAxlNode(): Promise<void> {
@@ -24,22 +69,27 @@ export async function startAxlNode(): Promise<void> {
 
   // Check if it's already running on the port
   try {
-    await fetch(`${getAxlUrl()}/topology`);
-    console.error("[axl] 🟢 AXL node is already running in the background.");
-    return;
+    const topo = await fetch(`${getAxlUrl()}/topology`);
+    if (topo.ok) {
+      console.error("[axl] 🟢 AXL node is already running in the background.");
+      return;
+    }
   } catch (err) {
     // Expected to fail if not running
   }
 
   const binaryPath = getAxlBinaryPath();
-  
   if (binaryPath !== "axl" && !fs.existsSync(binaryPath)) {
-    throw new Error(`AXL binary not found at ${binaryPath}. Please download it and set AXL_BINARY_PATH in .env.0mcp`);
+    throw new Error(`AXL binary not found at ${binaryPath}. Please build it in the /axl folder first.`);
   }
 
-  console.error(`[axl] 🚀 Starting AXL node from ${binaryPath}...`);
+  const configPath = await ensureAxlConfig();
+  console.error(`[axl] 🚀 Starting AXL node with config: ${configPath}...`);
   
-  axlProcess = spawn(binaryPath, [], {
+  // We run from the axl directory so relative paths in config work
+  const axlDir = path.dirname(binaryPath);
+  axlProcess = spawn(path.basename(binaryPath), ["-config", "node-config.json"], {
+    cwd: axlDir,
     stdio: ["ignore", "pipe", "pipe"],
     detached: false
   });
@@ -84,8 +134,8 @@ export function stopAxlNode(): void {
 export async function getLocalPeerKey(): Promise<string> {
   const res = await fetch(`${getAxlUrl()}/topology`);
   if (!res.ok) throw new Error(`Failed to get AXL topology: ${res.statusText}`);
-  const data = await res.json() as { public_key: string };
-  return data.public_key;
+  const data = await res.json() as { our_public_key: string };
+  return data.our_public_key;
 }
 
 /**

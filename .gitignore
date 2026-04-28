@@ -1,6 +1,7 @@
 # Dependencies
 node_modules/
 lib/
+axl/
 
 # Build output
 build/
@@ -8,6 +9,9 @@ dist/
 
 # Environment — NEVER commit this
 .env.0mcp
+
+# AXL P2P Sidecar
+axl/
 
 # TypeScript cache
 *.tsbuildinfo
