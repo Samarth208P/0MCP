@@ -2,6 +2,12 @@
 
 Welcome to the 0MCP ecosystem. 0MCP gives any AI coding agent (Cursor, VS Code, Windsurf) **persistent memory** on the 0G decentralised network and an **ENS identity** on Ethereum — turning sessions into compounding expertise.
 
+## Prerequisites
+Before you begin, ensure you have the following installed:
+- **Node.js 18+** (LTS recommended)
+- **Git** (for cloning extensions and the P2P layer)
+- **Go 1.25.5+** (Required to build the AXL P2P node binary)
+
 ---
 
 ## Step 1: Install & Initialise (2 minutes)

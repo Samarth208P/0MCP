@@ -73,8 +73,62 @@ Add the **0MCP Instructions** to your IDE's system prompt. Your AI will then aut
 ---
 
 ## 🗺️ System Architecture
+
+```mermaid
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#ffffff', 'primaryTextColor': '#000000', 'primaryBorderColor': '#000000', 'lineColor': '#333333', 'secondaryColor': '#f4f4f4', 'tertiaryColor': '#ffffff'}}}%%
+graph TD
+    classDef box fill:#ffffff,stroke:#000000,stroke-width:2px,color:#000000,font-weight:bold;
+    classDef sub fill:#f9f9f9,stroke:#cccccc,stroke-dasharray: 5 5;
+
+    subgraph Local ["Local Environment (Developer Machine)"]
+        IDE["Agent IDE (Cursor/VSCode)"]:::box
+        MCP["0MCP Server (stdio)"]:::box
+        AES["AES-256-GCM Encryption"]:::box
+        AXL_BIN["AXL Binary Sidecar"]:::box
+    end
+
+    subgraph ZeroG ["0G Foundation Infrastructure"]
+        ZG_STOR["0G Storage (KV & Log)"]:::box
+        ZG_EVM["0G Galileo (Testnet EVM)"]:::box
+        INFT["Brain iNFT (ERC-7857)"]:::box
+        REG["Memory Registry"]:::box
+    end
+
+    subgraph Ethereum ["Identity & Sovereignty (Sepolia)"]
+        ENS["ENS (.0mcp.eth)"]:::box
+        PAY["ZeroG Paymaster (Account Abstraction)"]:::box
+    end
+
+    subgraph Mesh ["P2P Intelligence Mesh (Gensyn AXL)"]
+        P2P["AXL DHT / Peer Discovery"]:::box
+        REMOTE["Remote Agent Memories"]:::box
+    end
+
+    %% Flows
+    IDE <-->|JSON-RPC| MCP
+    MCP <-->|Encrypt/Decrypt| AES
+    AES <-->|Encrypted Blobs| ZG_STOR
+    
+    MCP -->|Resolve Identity| ENS
+    MCP -->|Update Metadata| REG
+    MCP -->|Sponsor Gas| PAY
+
+    MCP <-->|A2A Request| AXL_BIN
+    AXL_BIN <-->|Encrypted P2P Tunnel| P2P
+    P2P <-->|Memory Trade| REMOTE
+
+    ZG_EVM --- INFT
+    ZG_EVM --- REG
+    INFT ---|Points to| ZG_STOR
+
+    style Local fill:#f0f7ff,stroke:#005cc5,stroke-width:1px
+    style ZeroG fill:#f0fff4,stroke:#22863a,stroke-width:1px
+    style Ethereum fill:#fff5f0,stroke:#d73a49,stroke-width:1px
+    style Mesh fill:#f5f0ff,stroke:#6f42c1,stroke-width:1px
+```
+
 For a deep dive into the data flow, encryption patterns, and on-chain mechanics:
-👉 **[View Architecture Map](ARCHITECTURE.md)**
+👉 **[View Full Technical Architecture](ARCHITECTURE.md)**
 
 ---
 

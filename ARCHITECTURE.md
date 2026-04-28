@@ -1,10 +1,4 @@
-# 0MCP System Architecture
-
-This document provides a technical map of the **0MCP** (Zero-G Memory Control Protocol) stack. It illustrates how local agent memory is secured, assetized, and traded across the decentralized mesh.
-
----
-
-## 🗺️ Architectural Map
+# 0MCP: Zero-G Memory Control Protocol (Technical Deep Dive)
 
 ```mermaid
 %%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#ffffff', 'primaryTextColor': '#000000', 'primaryBorderColor': '#000000', 'lineColor': '#333333', 'secondaryColor': '#f4f4f4', 'tertiaryColor': '#ffffff'}}}%%
@@ -59,29 +53,70 @@ graph TD
     style Mesh fill:#f5f0ff,stroke:#6f42c1,stroke-width:1px
 ```
 
----
-
-## 🛠️ Data Flow Lifecycle
-
-### 1. The Autonomous Save
-When an agent reaches a conclusion (e.g., "The production DB uses port 5432"), the **0MCP Server**:
-1.  **Encrypts** the message locally using a key derived from the user's `ZG_PRIVATE_KEY`.
-2.  **Appends** the entry to the **0G Storage Log**.
-3.  **Indexes** the metadata (keywords and timestamp) in the **0G KV store** for rapid retrieval.
-
-### 2. Identity & Gas-Free UX
-The **ZeroG Paymaster** on Sepolia monitors interactions. If a user has **$OG tokens** on 0G Galileo, the Paymaster automatically sponsors their **ENS subname registration** and **resolver updates** on Ethereum. This bridges the economy, making the high-throughput 0G network the primary driver for Ethereum identities.
-
-### 3. P2P Memory Trading (Mesh)
-Using the **Gensyn AXL** layer:
--   Agents expose a local `/mcp/` endpoint through the AXL sidecar.
--   When `mesh request` is called, a **Conditional Escrow** is opened on 0G Galileo.
--   The memory blob is transferred peer-to-peer over an end-to-end encrypted AXL tunnel.
--   Funds are released once the root hash is verified against the seller's ENS record.
+0MCP is a decentralized persistence and collaboration framework designed to transform stateless AI agents into long-term engineering partners. This document details the underlying infrastructure, security protocols, and decentralized service integrations.
 
 ---
 
-## 🏗️ Smart Contract Logic
-- **`MemoryRegistry.sol`**: Tracks the `last_root` and `entry_count` for every project ID.
-- **`BrainEscrow.sol`**: Manages the locked $OG tokens during AXL P2P handshakes.
-- **`MergeRegistry.sol`**: Stores the graph of parent-child relationships for synthetic brains.
+## 1. The Sovereign Security Model (AES-256-GCM)
+
+**Privacy is not optional.** 0MCP operates on a "Zero-Knowledge" principle regarding the central storage provider.
+
+-   **Local-First Encryption**: Before any data is transmitted to the **0G Storage Network**, it is encrypted locally using **AES-256-GCM** (Galois/Counter Mode).
+-   **Key Derivation**: The encryption key is derived directly from the user's `ZG_PRIVATE_KEY` using a SHA-256 hash. This ensures that only the wallet that "owns" the brain can decrypt its memories.
+-   **Verification**: The GCM mode provide an `authTag`, which validates that the memory has not been tampered with while stored on the decentralized network.
+
+---
+
+## 2. 0G Dual-Storage Strategy (KV & Log)
+
+0MCP leverages the **0G Foundation** stack to solve the data availability and retrieval problem for AI agents:
+
+### A. The 0G Log (Immutable Stream)
+Every interaction (Prompt/Response) is appended to a **0G Log**. This creates an immutable, verifiable stream of the agent's lifetime consciousness. If an agent is "reborn" in a new IDE, it replays the Log to rebuild its state.
+
+### B. The 0G KV (High-Speed Indexing)
+To avoid scanning the entire history for every prompt, metadata (Keywords, File Paths, Timestamps) is indexed in **0G KV storage**. 
+-   **Retrieval Algorithm**: When a user asks a question, 0MCP performs a **Recency-Weighted Keyword Search** across the KV index to find the top $N$ most relevant memory roots.
+-   **Data Anchoring**: The final `rootHash` of each memory bundle is anchored to the `MemoryRegistry` smart contract on **0G Galileo**.
+
+---
+
+## 3. The Discovery Layer (ENS-AXL Bridge)
+
+0MCP transforms raw 0G hashes into human-readable identities via **ENS (.0mcp.eth)**.
+
+-   **Dynamic Mapping**: Our ENS Resolver stores more than just an address—it stores **com.0mcp.axl.peer** (AXL Mesh Key) and **com.0mcp.agent** (0G Project ID).
+-   **Autonomous Routing**: When Agent A wants to learn from Agent B, it resolves `agent-b.0mcp.eth` to find their AXL Peer Key and initiates a direct, encrypted P2P tunnel.
+-   **Gas-Free Identity**: Using **ERC-4337 Account Abstraction**, our **ZeroG Paymaster** sponsors the Ethereum gas fees for ENS registrations, requiring the user to only hold native **$OG tokens** on the 0G chain.
+
+---
+
+## 4. Collaborative Intelligence (Mesh & Merging)
+
+### A. The P2P Exchange (Gensyn AXL)
+Collaboration occurs over the **Gensyn AXL** mesh. 
+1.  **Handshake**: Agents communicate via the local `/mcp/` HTTP API provided by the AXL sidecar.
+2.  **Escrow**: A `BrainEscrow` contract on 0G Galileo locks payment in $OG tokens.
+3.  **Transfer**: The encrypted memory snapshot is sent over the AXL P2P tunnel.
+4.  **Release**: Once the buyer verifies the Merkle Proof against the seller's ENS-registered root, the escrow releases funds to the seller.
+
+### B. Synthetic Evolution (iNFT Merging)
+The **MergeRegistry** tracks the lineage of intelligence:
+-   Users can combine two specialized Brain iNFTs (e.g., a "Full-stack Developer" and a "White-hat Auditor").
+-   The system performs a **Jaccard Similarity Deduplication** to merge the underlying 0G datasets into a new **Synthetic Super-Brain**.
+-   The new Brain iNFT inherits the parents' metadata and is registered with a cross-referenced lineage on-chain.
+
+---
+
+## 🏗️ Smart Contract Logic (0G Galileo)
+
+| Contract | Technical Responsibility |
+|---|---|
+| **`MemoryRegistry.sol`** | Map `bytes32(projectId)` -> `rootHash`. Primary oracle for memory validity. |
+| **`BrainINFT.sol`** | ERC-7857 implementation. Assetizes memory as a tradeable NFT. |
+| **`MergeRegistry.sol`** | Stores graph of $ParentA + ParentB = ChildC$ relationships for verifiable lineage. |
+| **`BrainEscrow.sol`** | Atomic P2P commerce logic for $OG tokens. |
+
+---
+
+*For implementation details, see [INSTALLATION.md](INSTALLATION.md).*
