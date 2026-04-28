@@ -89,3 +89,19 @@ ENS names (.0mcp.eth) act as the human-readable map to decentralized 0G brains. 
 5. **Encrypt and Save:** New insights are encrypted and logged back to 0G immutably.
 
 *Built by Samarth Patel*
+
+---
+
+## Citations
+
+If you use 0MCP or its underlying P2P mesh components in your research, please cite our partners at Gensyn:
+
+```bibtex
+@misc{gensyn2026axl,
+  title         = {{AXL}: A P2P Network for Decentralized Agentic and {AI/ML} Applications},
+  author        = {{Gensyn AI}},
+  year          = {2026},
+  howpublished  = {\url{[https://github.com/gensyn-ai/axl](https://github.com/gensyn-ai/axl)}},
+  note          = {Open-source software}
+}
+```
