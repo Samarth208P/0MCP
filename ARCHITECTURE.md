@@ -108,7 +108,7 @@ The **MergeRegistry** tracks the lineage of intelligence:
 
 ---
 
-## 🏗️ Smart Contract Logic (0G Galileo)
+## Smart Contract Logic (0G Galileo)
 
 | Contract | Technical Responsibility |
 |---|---|

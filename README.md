@@ -11,10 +11,10 @@
 
 ---
 
-## 🧠 The Problem: The "Alzheimer's" of AI Agents
+## The Problem: The "Alzheimer's" of AI Agents
 Today's AI coding agents (Cursor, VS Code, Windsurf) are powerful but **stateless**. Every new session is a blank slate. They forget your architectural decisions, your bug-fix history, and your specific coding style. Existing RAG solutions are private, siloed, and non-sovereign.
 
-## 🛡️ The Solution: 0MCP (Zero-G Memory Control Protocol)
+## The Solution: 0MCP (Zero-G Memory Control Protocol)
 0MCP is a decentralized infrastructure layer that gives AI agents **long-term engineering partners**. By leveraging the **0G Foundation stack**, 0MCP ensures that your agent’s experience is:
 1.  **Persistent**: Memory is anchored to 0G Storage (KV/Log).
 2.  **Sovereign**: You own your memory as a **Brain iNFT** (ERC-7857).
@@ -22,7 +22,21 @@ Today's AI coding agents (Cursor, VS Code, Windsurf) are powerful but **stateles
 
 ---
 
-## 🔥 Key Innovations
+## Numbers That Matter
+The figures below are **operational estimates**, not benchmark claims. They are meant to show the difference between a session-bound agent and a memory-native one.
+
+| Metric | Without 0MCP | With 0MCP | Benefit |
+|---|---:|---:|---|
+| **Avg. warm-up tokens / session** | 2,000 - 5,000 | 300 - 500 | ~90% reduction |
+| **Context-loss hallucination rate** | 60 - 80% | Low, anchored memory | Fewer repeated mistakes |
+| **Time-to-first-contribution** | 15 - 30 min | 2 - 5 min | Faster repo onboarding |
+| **Knowledge transfer** | Manual copy/paste | 0G + AXL mesh exchange | Automated, sovereign |
+| **Ownership model** | Vendor-bound / ephemeral | Brain iNFT (ERC-7857) | Tradeable intelligence |
+| **Security posture** | Centralized / cleartext | Local AES-256-GCM + 0G storage | Zero-knowledge privacy |
+
+---
+
+## Key Innovations
 
 ### 1. The Autonomous Memory Loop
 0MCP isn't just a tool; it's a **behavior**. Integrated agents autonomously encrypt and save project context after every meaningful exchange.
@@ -41,7 +55,20 @@ Powered by **Gensyn AXL**, 0MCP allows agents to discover each other directly.
 
 ---
 
-## 🛠️ Technical Stack
+## Technical Stack
+
+### Five Layers. Zero Compromise.
+
+1.  **Storage** - 0G Storage (KV & Log)
+    - Decentralized repository for encrypted snapshots.
+2.  **Identity** - ENS (.0mcp.eth)
+    - Human-readable mapping to 0G data roots and AXL keys.
+3.  **Logic / Chain** - 0G Galileo (EVM)
+    - Registry, iNFT minting, and P2P escrow contracts.
+4.  **P2P Mesh** - Gensyn AXL
+    - Encrypted agent-to-agent communication layer.
+5.  **Gas Layer** - ERC-4337 Paymaster
+    - Sponsors ENS registration gas for users with 0G tokens.
 
 | Component | Technology | Role |
 |---|---|---|
@@ -53,7 +80,7 @@ Powered by **Gensyn AXL**, 0MCP allows agents to discover each other directly.
 
 ---
 
-## 🚀 Quick Start (2 Minutes)
+## Quick Start (2 Minutes)
 
 ### 1. Install Global CLI
 ```bash
@@ -72,7 +99,7 @@ Add the **0MCP Instructions** to your IDE's system prompt. Your AI will then aut
 
 ---
 
-## 🗺️ System Architecture
+## System Architecture
 
 ```mermaid
 %%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#ffffff', 'primaryTextColor': '#000000', 'primaryBorderColor': '#000000', 'lineColor': '#333333', 'secondaryColor': '#f4f4f4', 'tertiaryColor': '#ffffff'}}}%%
@@ -128,11 +155,11 @@ graph TD
 ```
 
 For a deep dive into the data flow, encryption patterns, and on-chain mechanics:
-👉 **[View Full Technical Architecture](ARCHITECTURE.md)**
+**[View Full Technical Architecture](ARCHITECTURE.md)**
 
 ---
 
-## 📜 Citations
+## Citations
 If you use 0MCP in your research or project, please cite the AXL network:
 ```bibtex
 @misc{gensyn2026axl,

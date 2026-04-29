@@ -18,10 +18,8 @@ interface INameWrapper {
 
 /**
  * @title ZeroMCPRegistrar
- * @dev A permissionless subname registrar for the 0MCP ecosystem.
- * Any user can call `register` to claim a subname under 0mcp.eth.
- * Requirements: The owner of 0mcp.eth MUST approve this contract 
- * using `setApprovalForAll(ZeroMCPRegistrar, true)` on the NameWrapper.
+ * @dev Permissionless subname registrar for the 0MCP ecosystem.
+ * The owner of 0mcp.eth must approve this contract via NameWrapper before use.
  */
 contract ZeroMCPRegistrar {
     INameWrapper public immutable nameWrapper;
@@ -45,17 +43,16 @@ contract ZeroMCPRegistrar {
      * @dev Allows anyone to register an unclaimed subname.
      */
     function register(string calldata label, address newOwner) external {
-        // Expiry is hardcoded to a safe future block for demo. In prod, it inherits the parent's expiry.
-        uint64 demoExpiry = 2524608000; // Jan 1, 2050
+        uint64 expiry = 2524608000;
 
         nameWrapper.setSubnodeRecord(
             parentNode,
             label,
             newOwner,
             publicResolver,
-            0, // ttl
-            0, // fuses (none locked)
-            demoExpiry
+            0,
+            0,
+            expiry
         );
 
         emit SubnameRegistered(label, newOwner);

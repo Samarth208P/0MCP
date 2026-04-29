@@ -107,7 +107,7 @@ export function formatContextBlock(entries: MemoryEntry[]): string {
  * context block ready for injection into the LLM system prompt.
  *
  * Steps:
- *   1. Load all entries for the project from 0G KV (or mock store)
+ *   1. Load all entries for the project from storage
  *   2. Extract keywords from the current prompt
  *   3. Score every entry: 0.7 × keyword overlap + 0.3 × recency
  *   4. Keep only entries with score > 0, take top N
@@ -136,9 +136,8 @@ export async function buildContext(
     return { entry, score, overlap: matched.length, keywordsMatched: matched };
   });
 
-  // Debug output — visible in terminal during demo when DEBUG_CONTEXT=true
   if (process.env.DEBUG_CONTEXT === "true") {
-    console.error("\n🧠 0MCP CONTEXT RETRIEVAL DEBUG:");
+    console.error("\n0MCP CONTEXT RETRIEVAL DEBUG:");
     console.error(`  Query keywords: [${queryKeywords.join(", ")}]`);
     console.error(`  Total entries in 0G: ${allEntries.length}`);
     scored

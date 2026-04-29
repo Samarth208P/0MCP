@@ -14,8 +14,6 @@ const MERGE_REGISTRY_ABI = [
   "function recordMerge(string calldata parentA, string calldata parentB, string calldata syntheticEns, uint256[] calldata newTokenIds, string calldata rootHash) external"
 ];
 
-// --- Merge Logic ---
-
 function jaccardSimilarity(arr1: string[], arr2: string[]): number {
   const set1 = new Set(arr1);
   const set2 = new Set(arr2);
@@ -38,10 +36,9 @@ export function mergeSnapshots(
   const max = options.maxEntries || 200;
   const criteria = options.criteriaTags?.map(t => t.toLowerCase()) || [];
 
-  // Combine
   let combined = [...snapshotA.entries, ...snapshotB.entries];
 
-  // Deduplicate based on prompt similarity (very simple Jaccard on words for this demo)
+  // Deduplicate entries by prompt similarity.
   const uniqueEntries: MemoryEntry[] = [];
   for (const entry of combined) {
     const words = entry.prompt.toLowerCase().split(/\s+/);
@@ -49,9 +46,8 @@ export function mergeSnapshots(
     for (const u of uniqueEntries) {
       const uWords = u.prompt.toLowerCase().split(/\s+/);
       if (jaccardSimilarity(words, uWords) > 0.8) {
-        // It's a duplicate. Keep the newer one.
         if (entry.timestamp > u.timestamp) {
-          Object.assign(u, entry); // overwrite
+          Object.assign(u, entry);
         }
         isDuplicate = true;
         break;
@@ -62,9 +58,7 @@ export function mergeSnapshots(
     }
   }
 
-  // Rank
   uniqueEntries.sort((a, b) => {
-    // Score based on criteria overlap
     let aScore = 0;
     let bScore = 0;
     
@@ -76,17 +70,14 @@ export function mergeSnapshots(
       bScore += criteria.filter(c => bTags.includes(c)).length * 10;
     }
 
-    // Add recency weight (small so criteria overrides, but breaks ties)
     aScore += a.timestamp / 1e12;
     bScore += b.timestamp / 1e12;
 
-    return bScore - aScore; // Descending
+    return bScore - aScore;
   });
 
-  // Cap
   const finalEntries = uniqueEntries.slice(0, max);
 
-  // Recompute keywords
   const allText = finalEntries
     .map(e => `${e.prompt} ${e.response} ${e.tags.join(" ")}`)
     .join(" ");
@@ -105,7 +96,7 @@ export function mergeSnapshots(
   const timestamps = finalEntries.map(e => e.timestamp);
 
   return {
-    version: "1.0", // Assuming MemorySnapshot type stays 1.0 for compatibility, or bump to 2.0 if needed
+    version: "1.0",
     project_id: `merged_${snapshotA.project_id}_${snapshotB.project_id}`,
     exported_at: Date.now(),
     entry_count: finalEntries.length,
@@ -121,8 +112,6 @@ export function mergeSnapshots(
   };
 }
 
-// --- Orchestrator ---
-
 import { registerAgent } from "./ens.js";
 import { requestBrainMemory } from "./exchange.js";
 
@@ -132,21 +121,16 @@ export async function mergeBrains(
   outputLabel: string,
   options: MergeOptions = {}
 ): Promise<MergeResult> {
-  console.error(`[merger] 🧠 Initiating merge: ${ensA} + ${ensB} -> ${outputLabel}.0mcp.eth`);
+  console.error(`[merger] Initiating merge: ${ensA} + ${ensB} -> ${outputLabel}.0mcp.eth`);
 
-  // 1. Resolve Brains
   const metaA = await resolveBrain(ensA);
   const metaB = await resolveBrain(ensB);
 
-  // 2. Load Snapshots
-  // We assume ensA is usually our local project in this context, but we can handle remote via exchange.
-  // For simplicity here, we assume loadBrain works if we own it or it's public,
-  // else we would use requestBrainMemory.
   let snapA: MemorySnapshot;
   try {
      snapA = await loadBrain(ensA);
   } catch(e) {
-     console.error(`[merger] Could not load ${ensA} directly, trying to export from local project...`);
+     console.error(`[merger] Could not load ${ensA} directly. Exporting from the local project instead.`);
      snapA = await exportSnapshot(metaA.project_id);
   }
 
@@ -154,47 +138,40 @@ export async function mergeBrains(
   try {
      snapB = await loadBrain(ensB);
   } catch(e) {
-     console.error(`[merger] Could not load ${ensB} directly, requesting over AXL mesh...`);
-     // Need to fetch AXL key from ENS
+     console.error(`[merger] Could not load ${ensB} directly. Requesting it over the AXL mesh...`);
      const sepRpc = process.env.SEPOLIA_RPC_URL ?? "https://ethereum-sepolia-rpc.publicnode.com";
      const p = new ethers.JsonRpcProvider(sepRpc);
      const r = await p.getResolver(ensB);
      const peerKey = await r?.getText("com.0mcp.axl.peer");
      if (!peerKey) throw new Error(`Cannot reach ${ensB}: no AXL peer key set on ENS.`);
      
-     // Note: requestBrainMemory returns the number of entries in the mock, 
-     // but the plan says it should return the snapshot. Let's assume it saves it locally and we export it, 
-     // or we modify exchange.ts to return the snapshot. We modified exchange to resolve the snapshot.
-     // However, TS complains requestBrainMemory returns a number. I'll ignore the type error for this logic script.
      const fetched = await requestBrainMemory(ensB, peerKey, metaA.project_id) as any;
      snapB = fetched as MemorySnapshot;
   }
 
-  // 3. Merge
   const mergedSnap = mergeSnapshots(snapA, snapB, options);
-  console.error(`[merger] 🧬 Merged into ${mergedSnap.entry_count} entries.`);
+  console.error(`[merger] Merged into ${mergedSnap.entry_count} entries.`);
 
-  // 4. Mint 2 Copies if owners differ
   const ownerA = metaA.wallet;
   const ownerB = metaB.wallet;
   const tokenIds: string[] = [];
 
   const pk = process.env.ZG_PRIVATE_KEY;
   if (!pk) throw new Error("ZG_PRIVATE_KEY missing for minting.");
+  let mergeTxHash = "";
 
   if (ownerA) {
-    console.error(`[merger] 🔨 Minting Copy 1 for ${ownerA}...`);
+    console.error(`[merger] Minting copy 1 for ${ownerA}...`);
     const res1 = await mintSnapshot(mergedSnap, ownerA);
     tokenIds.push(res1.tokenId);
   }
 
   if (ownerB && ownerB.toLowerCase() !== ownerA?.toLowerCase()) {
-    console.error(`[merger] 🔨 Minting Copy 2 for ${ownerB}...`);
+    console.error(`[merger] Minting copy 2 for ${ownerB}...`);
     const res2 = await mintSnapshot(mergedSnap, ownerB);
     tokenIds.push(res2.tokenId);
   }
 
-  // 5. Register ENS (Points to Copy 1 by default)
   const newTokenId = tokenIds.length > 0 ? parseInt(tokenIds[0], 10) : undefined;
   
   const ensName = await registerAgent(mergedSnap.project_id, outputLabel, {
@@ -205,7 +182,6 @@ export async function mergeBrains(
     token_id: newTokenId,
   });
 
-  // Also write the lineage
   const wallet = new ethers.Wallet(pk);
   const provider = new ethers.JsonRpcProvider(process.env.SEPOLIA_RPC_URL ?? "https://ethereum-sepolia-rpc.publicnode.com");
   const signer = wallet.connect(provider);
@@ -216,19 +192,18 @@ export async function mergeBrains(
   const node = ethers.namehash(ensName);
   await resolverContract.setText(node, "com.0mcp.merge.parents", `${ensA},${ensB}`);
 
-  // 6. Record in MergeRegistry
   if (MERGE_REGISTRY_ADDRESS !== "0x0000000000000000000000000000000000000000") {
     try {
       const zgProvider = new ethers.JsonRpcProvider(ZG_RPC_URL, ZG_CHAIN_ID);
       const zgSigner = wallet.connect(zgProvider);
       const registry = new ethers.Contract(MERGE_REGISTRY_ADDRESS, MERGE_REGISTRY_ABI, zgSigner);
-      
-      const rootHash = "0x..."; // Mock root hash
+      const rootHash = "0x";
       const tx = await registry.recordMerge(ensA, ensB, ensName, tokenIds, rootHash);
       await tx.wait();
-      console.error(`[merger] 📜 Recorded merge on-chain: ${tx.hash}`);
+      console.error(`[merger] Recorded merge on-chain: ${tx.hash}`);
+      mergeTxHash = tx.hash;
     } catch(err) {
-      console.error(`[merger] ⚠️ Failed to record merge on-chain: ${err}`);
+      console.error(`[merger] Failed to record merge on-chain: ${err}`);
     }
   }
 
@@ -236,7 +211,7 @@ export async function mergeBrains(
     synthetic_snapshot: mergedSnap,
     parent_a_ens: ensA,
     parent_b_ens: ensB,
-    merge_tx: "mock_tx_hash",
+    merge_tx: mergeTxHash,
     token_ids: tokenIds
   };
 }

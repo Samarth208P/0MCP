@@ -5,7 +5,7 @@
 
 ---
 
-## 🚀 Protocol Integrations
+## Protocol Integrations
 
 ### 1. 0G Foundation (L1 for Onchain AI)
 - **0G Storage (KV & Log)**: Used as the immutable anchor for agent consciousness. Conversation history is logged (Log) while architectural decisions are indexed (KV) for RAG retrieval.
@@ -22,7 +22,7 @@
 
 ---
 
-## 📜 Contract Deployment
+## Contract Deployment
 
 | Contract | Purpose | Network | Address |
 |---|---|---|---|
@@ -33,7 +33,7 @@
 
 ---
 
-## 🤖 Tracking: Best Autonomous Agents & iNFT Innovations
+## Tracking: Best Autonomous Agents & iNFT Innovations
 
 0MCP satisfies the core requirements of this track through its **Sovereign Intelligence** architecture:
 
@@ -43,13 +43,13 @@
 
 ---
 
-## 📦 Links
+## Links
 - **GitHub**: [https://github.com/Samarth208P/0MCP](https://github.com/Samarth208P/0MCP)
 - **Architecture**: [ARCHITECTURE.md](ARCHITECTURE.md)
 
 ---
 
-## 👥 Team
+## Team
 - **Samarth Patel** (Solo Developer)
 - **Telegram**: [@samarth208p](https://t.me/samarth208p)
 - **X**: [@SamPy4X](https://x.com/SamPy4X)

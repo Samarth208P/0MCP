@@ -1,7 +1,6 @@
 /**
  * TxLogger — singleton receipt collector for on-chain transactions.
- * Collects TX hashes during a session (CLI or MCP) and formats a summary
- * for the user/judge.
+ * Collects transaction hashes during a session and formats a summary.
  */
 
 export interface TxReceipt {

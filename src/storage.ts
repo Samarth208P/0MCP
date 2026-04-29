@@ -1,10 +1,6 @@
 /**
  * 0G Storage Layer — reads and writes project memory on the 0G Galileo testnet.
  *
- * Changes from original:
- *   - TxLogger.record() called after every on-chain write so judges see receipts.
- *   - saveMemory returns richer metadata (endpoint + txHash + rootHash).
- *
  * @module storage
  */
 
@@ -170,7 +166,6 @@ async function setProjectRoot(project_id: string, rootHash: string): Promise<str
     throw new Error("ZG_PRIVATE_KEY is not set. Registry updates (setProjectRoot) require a local private key.");
   }
 
-  // STANDARD DIRECT MODE
   const signer = new ethers.Wallet(privateKey, provider);
   const registry = getRegistry(signer);
 
@@ -185,7 +180,6 @@ async function setProjectRoot(project_id: string, rootHash: string): Promise<str
 
   await tx.wait();
 
-  // Record for judges
   TxLogger.record({
     chain:  "0g",
     label:  `setProjectRoot(${project_id})`,
@@ -205,9 +199,7 @@ async function uploadProjectBundle(
   const isCommunityFunded = !privateKey;
 
   if (isCommunityFunded) {
-    // 🌍 COMMUNITY STORAGE FUNDER (Testnet only)
-    // This key is used only to sign 0G storage gas for keyless users.
-    // It has no value and is funded by the 0MCP team for the hackathon/demo.
+    // Testnet-only fallback for storage uploads when no local key is configured.
     privateKey = "0x2ac04db24cf4a2aa23613235c40ac02821791b951776996014abf41c6d232051";
     console.error(`[storage] Using 0MCP Community Storage Funder for metadata upload…`);
   }
@@ -247,7 +239,6 @@ async function uploadProjectBundle(
     throw new Error("Unexpected fragmented upload result for project memory bundle.");
   }
 
-  // Record the upload transaction
   TxLogger.record({
     chain:  "0g",
     label:  `uploadBundle(${project_id}, ${entries.length} entries)`,
@@ -283,7 +274,6 @@ async function downloadProjectBundle(project_id: string): Promise<StoredProjectM
         const decryptedStr = decryptMemory(parsed.encrypted_data, privateKey);
         parsed.entries = JSON.parse(decryptedStr);
       } catch (err) {
-        // Fallback: try without 0x prefix if it exists, or with it if missing
         try {
           const alternateKey = privateKey.startsWith("0x") 
             ? privateKey.slice(2) 

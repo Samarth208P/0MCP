@@ -48,7 +48,7 @@ export function decodeValue<T>(bytes: Uint8Array | null): T | null {
 // ── Async helpers ─────────────────────────────────────────────────────────────
 
 /**
- * Resolves after `ms` milliseconds — use in demo scripts for pacing.
+ * Resolves after `ms` milliseconds.
  * @param ms - Milliseconds to wait
  */
 export function sleep(ms: number): Promise<void> {
