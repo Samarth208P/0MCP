@@ -125,11 +125,12 @@ Do NOT wait for the user to say "remember this". This is your autonomous duty.
 ## 4. SECURITY
 - ALWAYS ensure `.env.0mcp` is added to the project's `.gitignore` file immediately. Do this autonomously to prevent accidental leakage of the user's private keys.
 
-## 5. AXL P2P SETUP (AUTONOMOUS)
-- If the P2P layer is not configured, autonomously clone: `git clone https://github.com/gensyn-ai/axl.git`
-- Build the node: `cd axl && go build -o node.exe ./cmd/node/`
-- Register with 0MCP: `0mcp axl setup ./axl/node.exe` (or absolute path)
-- Finally: `0mcp axl init` to generate your mesh identity.
+## 5. AXL P2P SETUP
+- Only when the user explicitly expresses a desire to discover other brains, join the P2P mesh, or use cross-agent intelligence:
+  - If the P2P layer is not configured, autonomously clone: `git clone https://github.com/gensyn-ai/axl.git`
+  - Build the node: `cd axl && go build -o node.exe ./cmd/node/`
+  - Register with 0MCP: `0mcp axl setup ./axl/node.exe` (or absolute path)
+  - Finally: `0mcp axl init` to generate your mesh identity.
 ```
 
 ---
@@ -211,47 +212,67 @@ This flow validates **0G storage + iNFT mint + ENS registration + brain load**.
 ### AXL mesh: end-user setup + verification
 
 AXL is the P2P layer. A working setup is validated by:
-- `0mcp axl init` succeeds and you can query the local API at `http://127.0.0.1:9002/topology`
-- `0mcp ens register ...` publishes your peer key to ENS (text record `com.0mcp.axl.peer`)
-- `0mcp mesh discover` scans the registrar-backed peer index and returns discoverable peers
-- By default, discovery scans the most recent 1-2 days of blocks; override with `DISCOVERY_START_BLOCK` or `DISCOVERY_LOOKBACK_DAYS`
+- `0mcp axl init` succeeds and saves your unique Peer Key to `.env.0mcp`.
+- You can query the local API at `http://127.0.0.1:9002/topology`.
+- `0mcp ens register ...` publishes your peer key to ENS (text record `com.0mcp.axl.peer`).
+- `0mcp mesh discover` returns discoverable peers from the registrar.
 
-End-user steps:
+Technical Build & Launch Flow:
 
-```bash
-0mcp axl setup <path-to-axl-binary>
+```powershell
+# 1. Build binary (Go 1.25.5 required)
+cd axl
+go build -o node.exe ./cmd/node/
+
+# 2. Register path
+0mcp axl setup .\axl\node.exe
+
+# 3. Boot & Init
 0mcp axl init
-0mcp ens register <project-id> <label>
-0mcp mesh discover --keyword smart-contracts
+
+# 4. Launch persistent server
+.\axl\node.exe --config .\axl\node-config.json
 ```
 
 ---
 
 ## Step 6: Join the P2P Intelligence Mesh (Optional)
 
-0MCP allows you to request another agent's memory by ENS, discover peers from the registrar-backed index, buy expertise over the decentralized mesh, or merge multiple brains into a single **Super-Brain**.
+0MCP allows you to request another agent's memory by ENS, discover peers from the registrar-backed index, or merge multiple brains into a single **Super-Brain**.
 
-1.  **Download the AXL Binary:**
-    The P2P layer is powered by **Gensyn AXL**. Download the binary for your OS and place it in your project or a folder in your PATH.
-
-2.  **Configure AXL Path:**
-    ```bash
-    0mcp axl setup ./axl/node.exe
+1.  **Clone & Build the AXL Binary:**
+    The P2P layer is powered by **Gensyn AXL**.
+    ```powershell
+    git clone https://github.com/gensyn-ai/axl.git
+    cd axl
+    # Note: Use Go 1.25.5 toolchain to avoid library conflicts
+    go build -o node.exe ./cmd/node/
     ```
 
-    On Windows, use a real Windows path or a relative path from the repo root. Do not leave the placeholder `/path/to/axl-binary` in place, because Git Bash will rewrite it into a bogus `C:/Program Files/Git/...` path.
+2.  **Register the Path with 0MCP:**
+    ```powershell
+    0mcp axl setup .\axl\node.exe
+    ```
 
-3.  **Initialize Mesh Identity:**
-    ```bash
+3.  **Fix Config Deadlock (First Run Only):**
+    To allow the node to auto-generate a fresh Peer Key, temporarily edit `axl/node-config.json` and **remove** the `PrivateKeyPath` requirement. Once the node boots and generates `private.pem`, you can restore the path if desired.
+
+4.  **Initialize Mesh Identity:**
+    ```powershell
     0mcp axl init
     ```
-This generates your peer key and updates your `.env.0mcp`.
+    This fetches your unique Peer Key and saves it to your `.env.0mcp`.
 
-4.  **Request and Trade:**
-    ```bash
+5.  **Launch the Background Server:**
+    ```powershell
+    .\axl\node.exe --config .\axl\node-config.json
+    ```
+    The node will open the API on port `9002` and the P2P listener on port `7000`.
+
+6.  **Request and Trade:**
+    ```powershell
     0mcp mesh discover --keyword smart-contracts
     0mcp mesh request expert.0mcp.eth --into my-project
-    0mcp mesh set-price 10
     ```
 
 ---
