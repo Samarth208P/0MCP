@@ -247,10 +247,10 @@ async function cmdInit(): Promise<void> {
   nl();
 
   // Q1: Private Key
-  let privateKey = await prompt("Your Private Key (optional — leave empty for KeeperHub Managed Wallet)", "");
+  let privateKey = await prompt("Your Private Key (optional — leave empty to continue without one)", "");
   let address = "";
   if (!privateKey) {
-    info("No key provided. Using KeeperHub Managed Wallet for identity.");
+    info("No key provided. Continuing without a private key.");
     privateKey = ""; // Explicitly empty
   } else {
     const { ethers } = await import("ethers");
