@@ -130,6 +130,55 @@ function persistEnv(updates: Record<string, string>): void {
   fs.writeFileSync(envPath, content);
 }
 
+function isExistingFile(filePath: string): boolean {
+  try {
+    return fs.existsSync(filePath) && fs.statSync(filePath).isFile();
+  } catch {
+    return false;
+  }
+}
+
+function resolveAxlBinaryPath(input: string): string {
+  const trimmed = input.trim();
+  if (!trimmed) return "";
+
+  // Allow `axl` to mean "use whatever is on PATH" without forcing a filesystem check.
+  if (trimmed === "axl") return trimmed;
+
+  const resolved = path.resolve(trimmed);
+  const candidates = new Set<string>([resolved]);
+
+  // On Windows, users often point at a build output without the extension.
+  if (process.platform === "win32") {
+    candidates.add(`${resolved}.exe`);
+    candidates.add(`${resolved}.cmd`);
+  }
+
+  for (const candidate of candidates) {
+    if (isExistingFile(candidate)) {
+      return candidate;
+    }
+  }
+
+  // If the caller passed a directory, try common build outputs inside it.
+  if (fs.existsSync(resolved) && fs.statSync(resolved).isDirectory()) {
+    const dirCandidates = process.platform === "win32"
+      ? ["node.exe", "node", "axl.exe", "axl"]
+      : ["node", "axl"];
+    for (const name of dirCandidates) {
+      const candidate = path.join(resolved, name);
+      if (isExistingFile(candidate)) {
+        return candidate;
+      }
+    }
+  }
+
+  throw new Error(
+    `AXL binary not found at ${resolved}. Build the binary first, then run ` +
+    `0mcp axl setup with the real executable path (for example: ./axl/node.exe).`
+  );
+}
+
 // ── Readline helper (for init wizard) ────────────────────────────────────────
 
 async function prompt(question: string, defaultVal = ""): Promise<string> {
@@ -1007,8 +1056,14 @@ async function cmdWalletSend(asset: string, recipient: string, amount: string): 
 
 async function cmdAxlSetup(path: string): Promise<void> {
   if (!path) { err("Usage: 0mcp axl setup <path-to-binary>"); process.exit(1); }
-  persistEnv({ AXL_BINARY_PATH: path });
-  ok(`AXL binary path saved: ${path}`);
+  try {
+    const binaryPath = resolveAxlBinaryPath(path);
+    persistEnv({ AXL_BINARY_PATH: binaryPath });
+    ok(`AXL binary path saved: ${binaryPath}`);
+  } catch (e) {
+    err(e instanceof Error ? e.message : String(e));
+    process.exit(1);
+  }
 }
 
 // ── COMMAND: axl init ─────────────────────────────────────────────────────────

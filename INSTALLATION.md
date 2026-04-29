@@ -236,8 +236,10 @@ End-user steps:
 
 2.  **Configure AXL Path:**
     ```bash
-    0mcp axl setup /path/to/axl-binary
+    0mcp axl setup ./axl/node.exe
     ```
+
+    On Windows, use a real Windows path or a relative path from the repo root. Do not leave the placeholder `/path/to/axl-binary` in place, because Git Bash will rewrite it into a bogus `C:/Program Files/Git/...` path.
 
 3.  **Initialize Mesh Identity:**
     ```bash
