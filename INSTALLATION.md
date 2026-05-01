@@ -125,12 +125,14 @@ Do NOT wait for the user to say "remember this". This is your autonomous duty.
 ## 4. SECURITY
 - ALWAYS ensure `.env.0mcp` is added to the project's `.gitignore` file immediately. Do this autonomously to prevent accidental leakage of the user's private keys.
 
-## 5. AXL P2P SETUP
-- Only when the user explicitly expresses a desire to discover other brains, join the P2P mesh, or use cross-agent intelligence:
-  - If the P2P layer is not configured, autonomously clone: `git clone https://github.com/gensyn-ai/axl.git`
-  - Build the node: `cd axl && go build -o node.exe ./cmd/node/`
-  - Register with 0MCP: `0mcp axl setup ./axl/node.exe` (or absolute path)
-  - Finally: `0mcp axl init` to generate your mesh identity.
+## 5. AXL P2P SETUP (AUTONOMOUS)
+- Autonomously configure the P2P mesh if discovery or cross-agent features are needed but AXL is missing:
+  1. **Clone**: `git clone https://github.com/gensyn-ai/axl.git`
+  2. **Build**: Use `GOTOOLCHAIN=go1.25.5` to build: `cd axl && go build -o node.exe ./cmd/node/`
+  3. **Identity**: If `axl/private.pem` is missing, generate an Ed25519 PKCS8 key first.
+  4. **Config**: Update `axl/node-config.json` with the **absolute path** to `private.pem`.
+  5. **Register**: `0mcp axl setup <absolute-path-to-node.exe>`
+  6. **Initialize**: `0mcp axl init` to finalize the mesh identity.
 ```
 
 ---
@@ -221,17 +223,23 @@ Technical Build & Launch Flow:
 
 ```powershell
 # 1. Build binary (Go 1.25.5 required)
+# Override toolchain to match gvisor dependency requirements
+$env:GOTOOLCHAIN="go1.25.5"
 cd axl
 go build -o node.exe ./cmd/node/
 
-# 2. Register path
+# 2. Register path with 0MCP
 0mcp axl setup .\axl\node.exe
 
-# 3. Boot & Init
+# 3. Configure Node Paths
+# Use an ABSOLUTE path for PrivateKeyPath in axl/node-config.json
+# Ensure the private key is in Ed25519 PKCS8 format.
+
+# 4. Boot & Init Mesh Identity
 0mcp axl init
 
-# 4. Launch persistent server
-.\axl\node.exe --config .\axl\node-config.json
+# 5. Launch persistent server
+.\axl\node.exe -config .\axl\node-config.json
 ```
 
 ---
@@ -245,7 +253,8 @@ go build -o node.exe ./cmd/node/
     ```powershell
     git clone https://github.com/gensyn-ai/axl.git
     cd axl
-    # Note: Use Go 1.25.5 toolchain to avoid library conflicts
+    # Force Go 1.25.5 toolchain to resolve gvisor dependency conflicts
+    $env:GOTOOLCHAIN="go1.25.5"
     go build -o node.exe ./cmd/node/
     ```
 
@@ -254,18 +263,20 @@ go build -o node.exe ./cmd/node/
     0mcp axl setup .\axl\node.exe
     ```
 
-3.  **Fix Config Deadlock (First Run Only):**
-    To allow the node to auto-generate a fresh Peer Key, temporarily edit `axl/node-config.json` and **remove** the `PrivateKeyPath` requirement. Once the node boots and generates `private.pem`, you can restore the path if desired.
+3.  **Configure Node Identity (Absolute Paths):**
+    Open `axl/node-config.json` and set `PrivateKeyPath` to the **absolute path** of your `private.pem` (e.g., `C:\PC\Codes\0MCP\axl\private.pem`).
+    
+    > **Note:** If `private.pem` is missing, you must generate a secure Ed25519 private key in PKCS8 format. The node requires this identity to sign P2P messages.
 
 4.  **Initialize Mesh Identity:**
     ```powershell
     0mcp axl init
     ```
-    This fetches your unique Peer Key and saves it to your `.env.0mcp`.
+    This generates your unique Peer Key and saves it to your `.env.0mcp`.
 
 5.  **Launch the Background Server:**
     ```powershell
-    .\axl\node.exe --config .\axl\node-config.json
+    .\axl\node.exe -config .\axl\node-config.json
     ```
     The node will open the API on port `9002` and the P2P listener on port `7000`.
 

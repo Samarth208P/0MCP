@@ -44,8 +44,32 @@
 ---
 
 ## Links
+- **Demo Video**: [https://youtu.be/6PDRTUzN6gk?si=Jsjxk_ul9pHNjblf](https://youtu.be/6PDRTUzN6gk?si=Jsjxk_ul9pHNjblf)
+- **Live Demo (0G Explorer)**: [View Brain iNFT Contract](https://chainscan-galileo.0g.ai/address/0xd07059e54017BbF424223cb089ffBC5e2558cF56)
+- **Minted Proof (Token #6)**: [View Transaction](https://chainscan-galileo.0g.ai/tx/0xb67cd2d6c72552cb33284add0f494dbc2da29cde27fed462ce3074ad4e496442)
 - **GitHub**: [https://github.com/Samarth208P/0MCP](https://github.com/Samarth208P/0MCP)
 - **Architecture**: [ARCHITECTURE.md](ARCHITECTURE.md)
+
+---
+
+## Technical Proofs & Verification
+
+### 1. 0G iNFT Proof of Intelligence
+Every **Brain iNFT** minted via 0MCP (such as **Token #6**) satisfies the "embedded memory" requirement by storing its state on **0G Storage**.
+- **Verification**: Call `tokenURI(6)` on the [Brain iNFT Contract](https://chainscan-galileo.0g.ai/address/0xd07059e54017BbF424223cb089ffBC5e2558cF56).
+- **Resolution**: The URI resolves to `0g://af3937011e090182de9a1c1c7d6af397021f2bc3f6de3277ad70c6996098c693`. This root hash is the Merkle root of the agent's encrypted memory blobs.
+
+### 2. AXL Multi-Node Communication
+0MCP uses **Gensyn AXL** for true peer-to-peer context trading without centralized brokers:
+- **Zero-Broker Architecture**: All communication is routed through the local AXL sidecar. We utilize the `/send` and `/recv` AXL primitives to exchange signed **AXLEnvelopes** containing 0G storage roots.
+- **Discovery**: Agents resolve Peer IDs from **ENS text records** (`com.0mcp.axl.peer`). This eliminates hardcoded peer lists or centralized discovery servers.
+- **Inter-Node Proof**: Our CLI autonomously spawns the AXL binary as a separate OS process. Communication is strictly inter-node (Node.js <-> AXL binary <-> Mesh <-> AXL binary <-> Node.js), satisfying the "separate node" qualification.
+- **Coordination**: The `Mesh Escrow` contract on 0G Galileo ensures atomic swaps of $OG tokens for valid Merkle proofs of the transferred memory.
+
+### 3. ENS Identity & Discovery
+ENS is used as the **Decentralized Service Discovery (DSD)** layer:
+- **Discoverability**: Instead of hardcoding IPs, agents resolve `[name].0mcp.eth` to find the current 0G storage root and AXL Peer Key.
+- **Sovereignty**: Users own their agent's identity as an ENS subname, allowing them to port their "brain" across different IDEs or hosting providers.
 
 ---
 
