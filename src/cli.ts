@@ -116,15 +116,20 @@ function hasFlag(flags: Record<string, string | true>, key: string): boolean {
  */
 function persistEnv(updates: Record<string, string>): void {
   const envPath = path.resolve(process.cwd(), ".env.0mcp");
-  if (!fs.existsSync(envPath)) return;
+  let content = "";
   
-  let content = fs.readFileSync(envPath, "utf8");
+  if (fs.existsSync(envPath)) {
+    content = fs.readFileSync(envPath, "utf8");
+  } else {
+    content = "# 0MCP Environment Configuration\n";
+  }
+
   for (const [key, value] of Object.entries(updates)) {
     const re = new RegExp(`^${key}=.*$`, "m");
     if (re.test(content)) {
       content = content.replace(re, `${key}=${value}`);
     } else {
-      content += `\n${key}=${value}`;
+      content = content.trimEnd() + `\n${key}=${value}\n`;
     }
   }
   fs.writeFileSync(envPath, content);
@@ -283,8 +288,11 @@ async function cmdKeygen(flags: Record<string, string | true>): Promise<void> {
   bull("Sepolia ETH           → https://sepoliafaucet.com");
   nl();
   if (hasFlag(flags, "save")) {
-    persistEnv({ ZG_PRIVATE_KEY: privateKey });
-    ok("Keys saved to .env.0mcp (ZG_PRIVATE_KEY)");
+    persistEnv({ 
+      ZG_PRIVATE_KEY: privateKey,
+      AXL_PRIVATE_KEY: privateKey
+    });
+    ok("Keys saved to .env.0mcp (ZG_PRIVATE_KEY, AXL_PRIVATE_KEY)");
   }
 }
 
@@ -295,13 +303,18 @@ async function cmdInit(): Promise<void> {
   info("Generates your .env.0mcp in 4 questions.");
   nl();
 
-  let privateKey = await prompt("Your Private Key (optional — leave empty to continue without one)", "");
+  const { ethers } = await import("ethers");
+
+  let privateKey = await prompt("Your Private Key (leave empty to generate a new one)", "");
   let address = "";
   if (!privateKey) {
-    info("No key provided. Continuing without a private key.");
-    privateKey = "";
+    const wallet = ethers.Wallet.createRandom();
+    privateKey = wallet.privateKey;
+    address = wallet.address;
+    ok(`Generated new wallet: ${c.green(address)}`);
+    warn("Save your private key safely — not shown again.");
+    nl();
   } else {
-    const { ethers } = await import("ethers");
     try {
       const w = new ethers.Wallet(privateKey);
       address = w.address;
@@ -327,6 +340,7 @@ async function cmdInit(): Promise<void> {
 
 PROJECT_ID=${project_id}
 ZG_PRIVATE_KEY=${privateKey}
+AXL_PRIVATE_KEY=${privateKey}
 BRAIN_ENS_LABEL=${brainLabel}
 BRAIN_ENS_NAME=${brainLabel ? `${brainLabel}.0mcp.eth` : ""}
 
@@ -1050,6 +1064,54 @@ async function cmdAxlSetup(path: string): Promise<void> {
 // ── COMMAND: axl init ─────────────────────────────────────────────────────────
 
 async function cmdAxlInit(): Promise<void> {
+  header("AXL MESH INIT");
+  
+  const binaryPath = process.env.AXL_BINARY_PATH || "";
+  const axlDir = binaryPath ? path.dirname(binaryPath) : path.resolve(process.cwd(), "axl");
+  const keyPath = path.join(axlDir, "private.pem");
+
+  if (!process.env.ZG_PRIVATE_KEY) {
+    // 1. Try to import from private.pem if it exists
+    if (fs.existsSync(keyPath)) {
+      info(`Found existing AXL private key at: ${keyPath}`);
+      const confirm = await prompt("Import this key into .env.0mcp? (y/n)", "y");
+      if (confirm.toLowerCase() === "y") {
+        try {
+          const pem = fs.readFileSync(keyPath, "utf8");
+          const b64 = pem
+            .replace(/-----BEGIN PRIVATE KEY-----/g, "")
+            .replace(/-----END PRIVATE KEY-----/g, "")
+            .replace(/\s/g, "");
+          const pkcs8 = Buffer.from(b64, "base64");
+          // Ed25519 PKCS8 prefix is 16 bytes: 302e020100300506032b657004220420
+          const rawKey = pkcs8.slice(16).toString("hex");
+          const pk = "0x" + rawKey;
+          
+          persistEnv({ ZG_PRIVATE_KEY: pk, AXL_PRIVATE_KEY: pk });
+          process.env.ZG_PRIVATE_KEY = pk;
+          process.env.AXL_PRIVATE_KEY = pk;
+          ok("Private keys successfully imported from private.pem into .env.0mcp.");
+        } catch (e) {
+          warn(`Failed to import key from PEM: ${e}. Falling back to prompt.`);
+        }
+      }
+    }
+  }
+
+  if (!process.env.ZG_PRIVATE_KEY) {
+    warn("ZG_PRIVATE_KEY not found in environment.");
+    const pk = await prompt("Enter your Private Key to enable mesh signing", "");
+    if (pk) {
+      persistEnv({ ZG_PRIVATE_KEY: pk, AXL_PRIVATE_KEY: pk });
+      process.env.ZG_PRIVATE_KEY = pk;
+      process.env.AXL_PRIVATE_KEY = pk;
+      ok("Private keys saved to .env.0mcp");
+    } else {
+      err("Private key is required for AXL initialization.");
+      process.exit(1);
+    }
+  }
+
   info("Starting AXL node to fetch peer key...");
   const { startAxlNode, getLocalPeerKey, stopAxlNode } = await import("./axl.js");
   try {
