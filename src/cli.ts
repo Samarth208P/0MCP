@@ -225,8 +225,13 @@ function printHelp(): void {
   row("keygen [--save]",                            "Generate Ethereum keypair (safe offline)");
   out("");
   out(c.bold("  MEMORY"));
-  row("memory list <project-id> [--json]",          "List all saved memory entries");
-  row("memory export <project-id> [--file <path>]", "Export full snapshot JSON to stdout or file");
+  row("memory list <project-id> [--json] [--include-ingest]", "List saved memory entries");
+  row("memory export <project-id> [--file <path>]",           "Export full snapshot JSON");
+  row("memory health <project-id> [--json] [--trend]",        "Show memory health dashboard");
+  out("");
+  out(c.bold("  INGESTION"));
+  row("ingest repo [--project <id>] [--path <dir>] [--dry-run]",           "Ingest git history into memory");
+  row("ingest commits [--since <ref>] [--project <id>] [--path <dir>]",    "Ingest commits since a ref/date");
   out("");
   out(c.bold("  BRAIN"));
   row("brain mint <project-id> [--recipient <addr>] [--ens <label>]", "Mint Brain iNFT + register ENS in one step");
@@ -253,9 +258,12 @@ function printHelp(): void {
   row("inft status <contract> <token-id> [--json]", "Check tokenURI on 0G testnet");
   out("");
   out(c.bold("  FLAGS"));
-  out(`    ${c.cyan("--json")}     Output raw JSON (all read commands)`);
-  out(`    ${c.cyan("--save")}     Persist generated keys to .env`);
-  out(`    ${c.cyan("--file")}     Write output to file instead of stdout`);
+  out(`    ${c.cyan("--json")}            Output raw JSON (all read commands)`);
+  out(`    ${c.cyan("--save")}            Persist generated keys to .env`);
+  out(`    ${c.cyan("--file")}            Write output to file instead of stdout`);
+  out(`    ${c.cyan("--include-ingest")}  Show auto-ingested entries in memory list`);
+  out(`    ${c.cyan("--dry-run")}         Preview ingestion without writing to storage`);
+  out(`    ${c.cyan("--trend")}           Show health history trend`);
   out("");
 }
 
@@ -440,7 +448,13 @@ async function cmdMemoryList(project: string, flags: Record<string, string | tru
   if (!project) { err("Usage: 0mcp memory list <project-id>"); process.exit(1); }
 
   const { loadAllEntries } = await import("./storage.js");
-  const entries = await loadAllEntries(project);
+  const allEntries = await loadAllEntries(project);
+
+  // Filter out __ingest__ entries unless --include-ingest is passed
+  const includeIngest = hasFlag(flags, "include-ingest");
+  const entries = includeIngest
+    ? allEntries
+    : allEntries.filter((e) => !e.tags.some((t) => t.startsWith("__ingest__")));
 
   if (hasFlag(flags, "json")) {
     jsonOut(entries);
@@ -448,14 +462,17 @@ async function cmdMemoryList(project: string, flags: Record<string, string | tru
   }
 
   header(`MEMORY — ${project}`);
-  if (entries.length === 0) {
+  if (allEntries.length === 0) {
     warn(`No memory entries found for project: ${project}`);
     return;
   }
-  out(c.bold(`  ${entries.length} entries`));
+
+  const ingestCount = allEntries.length - entries.length;
+  out(c.bold(`  ${entries.length} entries`) + (ingestCount > 0 ? c.dim(` (${ingestCount} auto-ingested hidden — use --include-ingest)`) : ""));
   nl();
   for (const [i, e] of entries.entries()) {
-    out(`  ${c.cyan(`[${i + 1}]`)} ${c.dim(new Date(e.timestamp).toISOString())}`);
+    const isIngest = e.tags.some((t) => t.startsWith("__ingest__"));
+    out(`  ${c.cyan(`[${i + 1}]`)} ${c.dim(new Date(e.timestamp).toISOString())}${isIngest ? c.dim(" [ingested]") : ""}`);
     out(`      ${c.bold("Prompt:")} ${e.prompt.slice(0, 80)}${e.prompt.length > 80 ? "…" : ""}`);
     out(`      ${c.bold("Tags:")}   ${e.tags.join(", ") || c.dim("none")}`);
     if (e.file_paths.length > 0) {
@@ -1047,6 +1064,109 @@ async function cmdWalletSend(asset: string, recipient: string, amount: string): 
 
 
 
+// ── COMMAND: ingest repo / ingest commits ────────────────────────────────────
+
+async function cmdIngest(
+  sub: string,
+  flags: Record<string, string | true>
+): Promise<void> {
+  const projectId = (flag(flags, "project") ?? process.env.PROJECT_ID ?? "").trim();
+  if (!projectId) {
+    err("Project ID required. Use --project <id> or set PROJECT_ID in .env");
+    process.exit(1);
+  }
+
+  const repoPath = path.resolve(flag(flags, "path") ?? process.cwd());
+  const since = flag(flags, "since");
+  const dryRun = hasFlag(flags, "dry-run");
+  const maxCommits = flag(flags, "max-commits") ? Number(flag(flags, "max-commits")) : 50;
+
+  if (sub === "commits" && !since) {
+    warn("No --since ref provided. Reading last 50 commits by default.");
+  }
+
+  header(sub === "commits" ? "INGEST COMMITS" : "INGEST REPO");
+  info(`Project:   ${projectId}`);
+  info(`Repo path: ${repoPath}`);
+  if (since) info(`Since ref: ${since}`);
+  if (dryRun) warn("DRY RUN — no data will be written to storage.");
+  nl();
+
+  const { runIngestion } = await import("./ingest.js");
+
+  info("Reading git history…");
+  let result;
+  try {
+    result = await runIngestion(projectId, repoPath, { since, maxCommits, dryRun });
+  } catch (e) {
+    err(`Ingestion failed: ${e instanceof Error ? e.message : String(e)}`);
+    process.exit(1);
+  }
+
+  nl();
+  ok(`Ingestion complete`);
+  out(`    Commits read:  ${result.events.length}`);
+  out(`    New events:    ${result.events.length - result.skipped}`);
+  out(`    Skipped (dup): ${result.skipped}`);
+  out(`    Entries saved: ${dryRun ? c.yellow("0 (dry run)") : c.green(String(result.saved))}`);
+  nl();
+
+  if (result.new_entries.length > 0) {
+    info("Sample entries:");
+    result.new_entries.slice(0, 3).forEach((e, i) => {
+      out(`  ${c.cyan(`[${i + 1}]`)} ${e.prompt.split("\n")[0].slice(0, 80)}`);
+    });
+    nl();
+  }
+
+  if (!dryRun && result.saved > 0) {
+    ok(`Saved to 0G storage. Run '0mcp memory list ${projectId} --include-ingest' to view.`);
+  }
+}
+
+// ── COMMAND: memory health ────────────────────────────────────────────────────
+
+async function cmdMemoryHealth(
+  project: string,
+  flags: Record<string, string | true>
+): Promise<void> {
+  const projectId = (project || flag(flags, "project") || process.env.PROJECT_ID || "").trim();
+  if (!projectId) {
+    err("Project ID required. Use: 0mcp memory health <project-id>");
+    process.exit(1);
+  }
+
+  const { generateHealthReport, formatHealthReport, loadHealthHistory, formatHealthTrend } =
+    await import("./health.js");
+
+  const dashMode = (process.env.HEALTH_DASHBOARD_MODE ?? "full") as "full" | "compact";
+
+  if (hasFlag(flags, "trend")) {
+    header(`MEMORY HEALTH TREND — ${projectId}`);
+    const history = loadHealthHistory(process.cwd(), 7);
+    out(formatHealthTrend(history, c));
+    return;
+  }
+
+  info(`Generating health report for: ${projectId}…`);
+  nl();
+
+  const report = await generateHealthReport(projectId, true, process.cwd());
+
+  if (hasFlag(flags, "json")) {
+    out(JSON.stringify(report, null, 2));
+    return;
+  }
+
+  header(`MEMORY HEALTH — ${projectId}`);
+  out(formatHealthReport(report, { mode: dashMode, colors: c }));
+
+  if (!hasFlag(flags, "json")) {
+    info(`Tip: Run with --json for machine-readable output, --trend for history.`);
+    nl();
+  }
+}
+
 // ── COMMAND: axl setup ────────────────────────────────────────────────────────
 
 async function cmdAxlSetup(path: string): Promise<void> {
@@ -1258,6 +1378,12 @@ async function main(): Promise<void> {
 
     } else if (command === "memory" && sub1 === "export") {
       await cmdMemoryExport(sub2 || parsed.positional[2] || "", flags);
+
+    } else if (command === "memory" && sub1 === "health") {
+      await cmdMemoryHealth(sub2 || parsed.positional[2] || "", flags);
+
+    } else if (command === "ingest" && (sub1 === "repo" || sub1 === "commits")) {
+      await cmdIngest(sub1, flags);
 
     } else if (command === "brain" && sub1 === "mint") {
       await cmdBrainMint(sub2 || parsed.positional[2] || "", flags);

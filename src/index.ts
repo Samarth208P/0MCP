@@ -26,6 +26,9 @@ import { startAxlNode, startReceiveLoop, discoverPeers } from "./axl.js";
 import { discoverMeshPeers } from "./discovery.js";
 import { handleBrainRequest, handleBrainDelivery, requestBrainMemory } from "./exchange.js";
 import { mergeBrains } from "./merger.js";
+import { extractDecisionRules, scoreContradiction } from "./analysis.js";
+import { runIngestion } from "./ingest.js";
+import { generateHealthReport } from "./health.js";
 
 // Ensure environment is loaded before server startup
 loadLocalEnv();
@@ -45,16 +48,18 @@ server.registerTool(
     description:
       "CRITICAL PRE-FLIGHT CHECK: Execute at the very beginning of EVERY session. " +
       "Retrieves relevant project memory from 0G decentralised storage. " +
+      "Automatically includes drift warnings when past decisions conflict with the current prompt. " +
       "Always call BEFORE answering the user's first question.",
     inputSchema: z.object({
       project_id:    z.string().describe("Unique identifier for the project/workspace"),
       prompt:        z.string().describe("The current user prompt to find relevant context for"),
       max_entries:   z.number().optional().default(5).describe("Max context entries to inject (default 5)"),
       requester_ens: z.string().optional().describe("ENS name of the requester for access verification"),
+      include_drift: z.boolean().optional().describe("Include drift/contradiction warnings (default true)"),
     }),
     annotations: { readOnlyHint: true, openWorldHint: false },
   },
-  async ({ project_id, prompt, max_entries, requester_ens }) => {
+  async ({ project_id, prompt, max_entries, requester_ens, include_drift }) => {
     try {
       loadLocalEnv(undefined, project_id);
 
@@ -68,7 +73,10 @@ server.registerTool(
         }
       }
 
-      const context = await buildContext(project_id, prompt, max_entries);
+      // Drift detection is on by default; caller can pass include_drift=false to suppress
+      const context = await buildContext(project_id, prompt, max_entries, {
+        includeDriftWarnings: include_drift !== false,
+      });
       return {
         content: [{
           type: "text" as const,
@@ -530,6 +538,100 @@ server.tool(
       };
     } catch (err) {
       return { content: [{ type: "text", text: `Error: ${err}` }] };
+    }
+  }
+);
+
+// ── TOOL 14: check_drift ──────────────────────────────────────────────────────
+
+server.tool(
+  "check_drift",
+  "Check whether a prompt contradicts past project decisions. Returns high-confidence conflicts only.",
+  {
+    project_id: z.string().describe("Project to check rules against"),
+    prompt:     z.string().describe("The new prompt or statement to evaluate"),
+  },
+  async (input) => {
+    try {
+      loadLocalEnv(undefined, input.project_id);
+      const entries = await loadAllEntries(input.project_id);
+      const rules = extractDecisionRules(entries);
+      const findings = scoreContradiction(input.prompt, rules);
+      return {
+        content: [{
+          type: "text" as const,
+          text: JSON.stringify({
+            rules_scanned: rules.length,
+            conflicts_found: findings.length,
+            findings,
+          }, null, 2),
+        }],
+      };
+    } catch (err) {
+      return { content: [{ type: "text" as const, text: `Error: ${err}` }] };
+    }
+  }
+);
+
+// ── TOOL 15: ingest_repo_state ────────────────────────────────────────────────
+
+server.tool(
+  "ingest_repo_state",
+  "Auto-ingest git commit history from a repository into project memory. Deduplicates automatically.",
+  {
+    project_id: z.string().describe("Project to ingest into"),
+    repo_path:  z.string().optional().describe("Absolute path to the git repo (defaults to cwd)"),
+    since:      z.string().optional().describe("Git ref or date to start from (e.g. HEAD~20)"),
+    max_commits: z.number().optional().describe("Max commits to read (default 50)"),
+    dry_run:    z.boolean().optional().describe("Preview without writing to storage (default false)"),
+  },
+  async (input) => {
+    try {
+      loadLocalEnv(undefined, input.project_id);
+      const result = await runIngestion(input.project_id, input.repo_path, {
+        since: input.since,
+        maxCommits: input.max_commits,
+        dryRun: input.dry_run ?? false,
+      });
+      return {
+        content: [{
+          type: "text" as const,
+          text: JSON.stringify({
+            commits_read:   result.events.length,
+            new_events:     result.events.length - result.skipped,
+            skipped:        result.skipped,
+            entries_saved:  result.saved,
+            dry_run:        input.dry_run ?? false,
+            sample_entries: result.new_entries.slice(0, 3).map((e) => ({
+              prompt: e.prompt.split("\n")[0].slice(0, 80),
+              tags:   e.tags,
+            })),
+          }, null, 2),
+        }],
+      };
+    } catch (err) {
+      return { content: [{ type: "text" as const, text: `Error: ${err}` }] };
+    }
+  }
+);
+
+// ── TOOL 16: memory_health ────────────────────────────────────────────────────
+
+server.tool(
+  "memory_health",
+  "Returns a structured health report for a project's memory: entry counts, quality metrics, contradictions, and recommendations.",
+  {
+    project_id: z.string().describe("Project to audit"),
+  },
+  async (input) => {
+    try {
+      loadLocalEnv(undefined, input.project_id);
+      const report = await generateHealthReport(input.project_id, false); // no history write from MCP
+      return {
+        content: [{ type: "text" as const, text: JSON.stringify(report, null, 2) }],
+      };
+    } catch (err) {
+      return { content: [{ type: "text" as const, text: `Error: ${err}` }] };
     }
   }
 );

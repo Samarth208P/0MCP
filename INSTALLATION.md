@@ -5,8 +5,10 @@ Welcome to the 0MCP ecosystem. 0MCP gives any AI coding agent (Cursor, VS Code, 
 ## Prerequisites
 Before you begin, ensure you have the following installed:
 - **Node.js 18+** (LTS recommended)
-- **Git** (for cloning extensions and the P2P layer)
+- **Git** (for cloning extensions, the P2P layer, and the **repo auto-ingestion** feature — must be on `PATH`)
 - **Go 1.25.5+** (Required to build the AXL P2P node binary)
+
+> **Auto-Ingestion note:** The `0mcp ingest repo` command shells out to `git` to read commit history. Git must be available on your system `PATH`. On Windows, Git for Windows (or Git shipped with VS Code) satisfies this requirement.
 
 ---
 
@@ -304,8 +306,13 @@ WALLET & FUNDS
   keygen [--save]                  Generate Ethereum keypair (safe offline)
 
 MEMORY
-  memory list <project> [--json]   List all saved memory entries
+  memory list <project> [--json] [--include-ingest]  List saved memory entries
   memory export <project>          Export full snapshot JSON to stdout or file
+  memory health <project> [--json] [--trend]          Show memory health dashboard
+
+INGESTION (auto-learn from repo)
+  ingest repo [--project <id>] [--path <dir>] [--dry-run]         Ingest full git history
+  ingest commits [--since <ref>] [--project <id>] [--path <dir>]  Ingest commits since ref
 
 BRAIN
   brain mint <project>             Mint Brain iNFT + register ENS in one step
@@ -332,10 +339,13 @@ INFT
   inft status <contract> <tokenId> Check tokenURI on 0G testnet
 
 FLAGS
-  --json     Output raw JSON (all read commands)
-  --save     Persist generated keys to .env.0mcp
-  --file     Write output to file instead of stdout
-  --help     Show this help screen
+  --json             Output raw JSON (all read commands)
+  --save             Persist generated keys to .env.0mcp
+  --file             Write output to file instead of stdout
+  --include-ingest   Show auto-ingested git entries in memory list
+  --dry-run          Preview ingestion without writing to storage
+  --trend            Show health history trend (memory health command)
+  --help             Show this help screen
 ```
 
 ---
@@ -354,6 +364,53 @@ FLAGS
 | `DISCOVERY_LOOKBACK_DAYS` | How many recent days of registrar logs to scan when `DISCOVERY_START_BLOCK` is unset (default `2`). |
 | `DISCOVERY_START_BLOCK` | Explicit lower bound for registrar log scanning if you want to pin a known deployment block. |
 | `BRAIN_ENS_NAME` | Your agent's primary ENS name (e.g., `agent.0mcp.eth`). |
+
+---
+
+## Ingestion & Health (v3.1+)
+
+### Repo Auto-Ingestion
+
+Tell 0MCP to learn from your git history automatically:
+
+```bash
+# Ingest the last 50 commits (default)
+0mcp ingest repo --project my-project
+
+# Ingest only commits since a specific ref or date
+0mcp ingest commits --since HEAD~20 --project my-project
+
+# Preview what would be ingested without writing (dry run)
+0mcp ingest repo --project my-project --dry-run
+
+# View ingested entries
+0mcp memory list my-project --include-ingest
+```
+
+Ingested entries are deduplicated automatically. Commit hashes are tracked in `.0mcp-ingest-state.json` (safe to `.gitignore`).
+
+### Memory Health Dashboard
+
+```bash
+# Human-readable health report
+0mcp memory health my-project
+
+# Machine-readable JSON (for CI scripts)
+0mcp memory health my-project --json
+
+# View trend over last 7 snapshots
+0mcp memory health my-project --trend
+```
+
+Health snapshots are stored locally in `.0mcp-health-history.json`.
+
+### Drift Detection
+
+Drift detection runs automatically on every `get_context` call. When a new prompt conflicts with past decisions, a `=== DRIFT WARNINGS ===` block is appended to the context.
+
+You can also check drift explicitly:
+- **CLI**: integrated into `get_context` output automatically
+- **MCP tool**: `check_drift(project_id, prompt)` returns structured findings
 
 ---
 

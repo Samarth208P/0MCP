@@ -1,7 +1,6 @@
 # Dependencies
 node_modules/
 lib/
-axl/
 
 # Build output
 build/
@@ -9,6 +8,10 @@ dist/
 
 # Environment — NEVER commit this
 .env.0mcp
+
+# 0MCP runtime artifacts — machine-specific, do not commit
+.0mcp-health-history.json
+.0mcp-ingest-state.json
 
 # AXL P2P Sidecar
 axl/
@@ -33,4 +36,3 @@ Thumbs.db
 # Logs
 *.log
 npm-debug.log*
-axl

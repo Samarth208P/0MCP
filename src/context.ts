@@ -7,11 +7,16 @@
  *   Score = 0.7 × (matching keywords / query keywords) + 0.3 × (recency 0–1)
  *   Only entries with score > 0 are injected.
  *
+ * Drift detection runs on every call (always-on by default). It appends a
+ * === DRIFT WARNINGS === block when contradictions against past decisions
+ * are detected. Can be suppressed via options.includeDriftWarnings = false.
+ *
  * @module context
  */
 
 import { loadAllEntries } from "./storage.js";
 import { extractKeywords } from "./utils.js";
+import { extractDecisionRules, scoreContradiction, formatDriftBlock } from "./analysis.js";
 import type { MemoryEntry } from "./types.js";
 
 // ── Scoring constants ─────────────────────────────────────────────────────────
@@ -24,6 +29,17 @@ interface ScoredEntry {
   score: number;
   overlap: number;
   keywordsMatched: string[];
+}
+
+// ── OPTIONS ───────────────────────────────────────────────────────────────────
+
+export interface BuildContextOptions {
+  /**
+   * When true, runs contradiction detection against extracted decision rules
+   * and appends a DRIFT WARNINGS block to the context string.
+   * Defaults to true (always-on). Set false to suppress for low-latency paths.
+   */
+  includeDriftWarnings?: boolean;
 }
 
 // ── SCORING ───────────────────────────────────────────────────────────────────
@@ -112,16 +128,19 @@ export function formatContextBlock(entries: MemoryEntry[]): string {
  *   3. Score every entry: 0.7 × keyword overlap + 0.3 × recency
  *   4. Keep only entries with score > 0, take top N
  *   5. Format into a structured block
+ *   6. Run drift detection and append warnings (always-on, best-effort)
  *
  * @param project_id - Project identifier
  * @param prompt - The user's current prompt
  * @param maxEntries - Maximum number of entries to inject (default 5)
+ * @param options - Optional configuration (drift warnings override, etc.)
  * @returns Formatted context string, or "" if no relevant entries found
  */
 export async function buildContext(
   project_id: string,
   prompt: string,
-  maxEntries = 5
+  maxEntries = 5,
+  options: BuildContextOptions = {}
 ): Promise<string> {
   const allEntries = await loadAllEntries(project_id);
   if (allEntries.length === 0) return "";
@@ -163,5 +182,35 @@ export async function buildContext(
     console.error(`  Injecting top ${topEntries.length} entries.\n`);
   }
 
-  return formatContextBlock(topEntries);
+  let contextBlock = formatContextBlock(topEntries);
+
+  // ── Drift detection (always-on by default, best-effort) ──────────────────
+  // Default: enabled unless ENABLE_DRIFT_DETECTION=false or caller sets false
+  const enableDrift =
+    options.includeDriftWarnings ??
+    process.env.ENABLE_DRIFT_DETECTION !== "false";
+
+  if (enableDrift && allEntries.length > 0) {
+    try {
+      const rules = extractDecisionRules(allEntries);
+      if (rules.length > 0) {
+        const findings = scoreContradiction(prompt, rules);
+        if (findings.length > 0) {
+          const driftBlock = formatDriftBlock(findings);
+          contextBlock = contextBlock
+            ? contextBlock + "\n" + driftBlock
+            : driftBlock;
+
+          if (process.env.DEBUG_CONTEXT === "true") {
+            console.error(`  Drift warnings: ${findings.length} finding(s) appended.`);
+          }
+        }
+      }
+    } catch (analysisErr) {
+      // Drift detection is best-effort — never block context retrieval
+      console.error(`[context] Drift analysis error (non-fatal): ${analysisErr}`);
+    }
+  }
+
+  return contextBlock;
 }
